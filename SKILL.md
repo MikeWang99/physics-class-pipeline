@@ -52,37 +52,18 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 
 - **覆盖平台**：Zoom（zoom.us）、腾讯会议（wemeetapp/xmeet）、钉钉、飞书、Google Meet（Chrome/Safari 打开 meet.google.com 标签页）
 - **检测到开课**：自动用 ffmpeg 录制 BlackHole（会议双方声音）+ 麦克风（双保险），存入 `{recordings_dir}/sessions/{YYYY-MM-DD_HHMM}/audio.wav`
-- **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → macOS 通知「转写完成，请说『下课』生成课后产出」
+- **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → **自动调用 Groq 生成课后反馈草稿** → 写入 `{vault}/上课记录/课后反馈/` → macOS 通知「转写完成，课后反馈已生成」
 
 用户无需任何手动操作。若用户说「开始上课/手动录音」，可直接运行 `bash {skill_dir}/scripts/meeting_watcher.sh once` 强制走一轮录音+转写。
 
-## 4. 课后：反馈 + 档案 + 作业
+## 4. 课后：反馈 + 档案 + 作业（全自动）
 
-用户说「下课」「课后」「生成课后反馈」时：
+散会后 watcher 自动完成以下步骤，**用户无需说「下课」**：
 
-1. 读 `config.json`。找 `{recordings_dir}/sessions/` 中**最新一个**含 `transcript.txt` 的会话目录；读入全文。
-   - 同时对照日历（当天/最近含 `Class` 的事件）确定本节课的体系与学生；多个候选时问用户。
-2. **生成课后反馈**：调用已有的 `parent-lesson-feedback` skill（遵守其 400–600 字、问题台账、两段式计划规范），将结果存为
-   `{vault}/上课记录/课后反馈/{YYYY-MM-DD} {体系} Class-{学生}.md`。
-3. **更新学生档案**：读 `{vault}/上课记录/学生档案/{学生}.md`（不存在则新建），按以下固定结构更新（保留历史章节，追加/修订最新状态）：
-   ```markdown
-   # 学生档案 · {学生}
-   ## 基本信息
-   - 姓名：
-   - 所在地：
-   - 所属体系：（如 CIE IGCSE 0625 / AP Physics C）
-   ## 当前进度
-   （最近一次更新：YYYY-MM-DD）正在学的章节/单元、syllabus 覆盖进度
-   ## 主要问题
-   带状态标记：新增 / 好转中 / 稳定 / 已解决
-   ## 薄弱项
-   ## 优势项
-   ## 课次记录
-   | 日期 | 课题 | 一句话总结 |
-   ```
-   只依据文字稿中的可观察证据更新，不臆测。
-4. **家庭作业建议**：不写入文件，直接在聊天框发给用户，包含：作业内容、对应 syllabus 知识点、预计用时、提交方式建议。
-5. **归档文字稿**：把 `transcript.txt` 复制到 `{vault}/上课记录/课堂文字稿/{YYYY-MM-DD} {体系} Class-{学生}.md`（加 front matter 注明时长与来源）。
+1. **自动生成反馈草稿**：`postclass_generate.sh` 读取转写稿，从日历匹配学生，调用 Groq 生成 300-500 字反馈草稿，写入 `{vault}/上课记录/课后反馈/{YYYY-MM-DD}-{学生}-feedback.md`
+2. **归档文字稿**：`transcript.txt` 复制到 `{vault}/上课记录/课堂文字稿/{YYYY-MM-DD} {体系} Class-{学生}.md`
+
+**AI 精修部分**（可选）：用户说「精修反馈」「更新档案」时，AI 读取自动生成的反馈草稿，按 `parent-lesson-feedback` skill 规范精修，并更新学生档案。
 
 ## 5. 故障排查
 
