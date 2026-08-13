@@ -186,17 +186,21 @@ stop_recording() {
 transcribe_session() {
   local dir="$1"
   [ -f "$dir/audio.wav" ] || { log "no audio.wav in $dir"; return; }
+  # skip if already transcribed or previously failed (prevent retry storm)
+  [ -f "$dir/transcript.txt" ] && { log "already transcribed: $dir"; return; }
+  [ -f "$dir/.transcribe_failed" ] && { log "skipping previously failed: $dir"; return; }
   local size
   size=$(stat -f%z "$dir/audio.wav" 2>/dev/null || echo 0)
   if [ "$size" -lt 100000 ]; then log "audio too small ($size bytes), skipping transcription"; notify "skip" "录音文件过小，跳过转写"; return; fi
   notify "transcribing" "会议结束，正在转写文字稿…"
   # pick up GROQ_API_KEY from user shell config if not in env
   if [ -z "${GROQ_API_KEY:-}" ] && [ -f "$HOME/.zshrc" ]; then
-    export GROQ_API_KEY="$(grep -o 'GROQ_API_KEY[="'"'"' ]*[A-Za-z0-9_-]*' "$HOME/.zshrc" | tail -1 | sed 's/.*[='"'"' ]//')"
+    export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
   fi
   if python3 "$SCRIPT_DIR/transcribe_audio.py" "$dir/audio.wav" "$dir" >> "$LOG" 2>&1; then
     notify "done" "转写完成 ✅ 在 AI 助手里说「下课」生成课后产出"
   else
+    touch "$dir/.transcribe_failed"
     notify "transcribe-failed" "转写失败，查看日志：$LOG"
   fi
 }
