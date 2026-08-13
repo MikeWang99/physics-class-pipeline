@@ -11,6 +11,8 @@ Outputs written to OUTDIR:
     transcript.txt   one line per segment:  [HH:MM:SS - HH:MM:SS] text
     transcript.json  machine-readable segments {start, end, text}
 """
+from __future__ import annotations
+
 import json
 import os
 import shutil

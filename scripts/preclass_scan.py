@@ -8,6 +8,8 @@
   - 上一次备课/课次线索，供 AI 或教师补全教学目标与流程。
 已存在同名笔记则跳过（幂等，可重复运行）。完成后发 macOS 通知。
 """
+from __future__ import annotations
+
 import json
 import os
 import re
