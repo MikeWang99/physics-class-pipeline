@@ -27,6 +27,7 @@ if [ ! -f "$CONFIG" ]; then
   exit 1
 fi
 RECORD_DIR="$(cfg recordings_dir "$HOME/physics-class-pipeline-data")"
+VAULT_PATH="$(cfg vault_path "$HOME/Obsidian Vault")"
 RECORD_DIR="${RECORD_DIR/#\~/$HOME}"
 LOG_DIR="$RECORD_DIR/logs"
 mkdir -p "$RECORD_DIR/sessions" "$LOG_DIR"
@@ -198,7 +199,13 @@ transcribe_session() {
     export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
   fi
   if python3 "$SCRIPT_DIR/transcribe_audio.py" "$dir/audio.wav" "$dir" >> "$LOG" 2>&1; then
-    notify "done" "转写完成 ✅ 在 AI 助手里说「下课」生成课后产出"
+    # 自动生成课后反馈
+    if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" >> "$LOG" 2>&1; then
+      OUTFILE=$(tail -1 "$LOG" | grep -o "$VAULT_PATH/.*" | head -1)
+      notify "done" "转写完成，课后反馈已生成 ✅"
+    else
+      notify "done" "转写完成 ✅（反馈生成失败，查看日志）"
+    fi
   else
     touch "$dir/.transcribe_failed"
     notify "transcribe-failed" "转写失败，查看日志：$LOG"
