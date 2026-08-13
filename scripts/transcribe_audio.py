@@ -43,12 +43,44 @@ def probe_duration(path: str) -> float:
     return float(out)
 
 
+def detect_proxy() -> str | None:
+    """HTTP proxy usable by this process.
+
+    Uses $https_proxy if set, else falls back to the macOS system proxy
+    (e.g. Clash Verge) which terminal/launchd processes do not inherit.
+    Needed where Groq blocks direct egress (HTTP 403 from CN networks).
+    """
+    for var in ("https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY", "all_proxy"):
+        if os.environ.get(var):
+            return os.environ[var]
+    try:
+        out = subprocess.run(["scutil", "--proxy"], capture_output=True, text=True,
+                             timeout=5).stdout
+        enabled = "HTTPSEnable : 1" in out or "HTTPEnable : 1" in out
+        host = port = None
+        for line in out.splitlines():
+            key, _, val = line.partition(":")
+            key, val = key.strip(), val.strip()
+            if key == "HTTPSProxy" or (host is None and key == "HTTPProxy"):
+                host = val
+            if key == "HTTPSPort" or (port is None and key == "HTTPPort"):
+                port = val
+        if enabled and host and port:
+            return f"http://{host}:{port}"
+    except Exception:
+        pass
+    return None
+
+
 def transcribe_file(path: str, api_key: str, language: str | None) -> dict:
     cmd = ["curl", "-s", "--max-time", "900", GROQ_URL,
            "-H", f"Authorization: Bearer {api_key}",
            "-F", f"file=@{path};type=audio/wav",
            "-F", f"model={GROQ_MODEL}",
            "-F", "response_format=verbose_json"]
+    proxy = detect_proxy()
+    if proxy:
+        cmd += ["-x", proxy]
     if language:
         cmd += ["-F", f"language={language}"]
     result = subprocess.run(cmd, capture_output=True, text=True)
