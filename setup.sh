@@ -61,13 +61,23 @@ EOF
 
 # ---------- 1. dependencies ----------
 step "1/7 依赖检查"
+if ! command -v brew >/dev/null 2>&1; then
+  fail "未安装 Homebrew。请先运行：/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+  exit 1
+fi
+ok "brew: $(command -v brew)"
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  warn "ffmpeg 未安装，正在自动安装（brew install ffmpeg）..."
+  brew install ffmpeg || { fail "ffmpeg 安装失败"; exit 1; }
+fi
+ok "ffmpeg: $(command -v ffmpeg)"
 MISSING=()
-for tool in brew ffmpeg python3 swift osascript; do
+for tool in python3 swift osascript; do
   if command -v "$tool" >/dev/null 2>&1; then ok "$tool: $(command -v "$tool")"
   else MISSING+=("$tool"); fail "$tool 未安装"; fi
 done
 if [ "${#MISSING[@]}" -gt 0 ]; then
-  fail "请先安装缺失依赖（brew install ffmpeg 等）后重跑本脚本"; exit 1
+  fail "请先安装缺失依赖后重跑本脚本"; exit 1
 fi
 
 # ---------- 2. audio chain ----------
@@ -199,6 +209,9 @@ done
 
 echo
 echo "================ 安装完成 ================"
+if ! system_profiler SPAudioDataType 2>/dev/null | grep -qi "blackhole"; then
+  echo "  ⚠️  BlackHole 尚未生效：重启 Mac 后再跑一次 bash $SKILL_DIR/setup.sh 完成音频链路"
+fi
 echo "  config.json : $SKILL_DIR/config.json"
 echo "  录音目录    : $DATA_DIR"
 echo "  日志        : $DATA_DIR/logs/"

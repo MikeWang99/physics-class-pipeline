@@ -10,7 +10,7 @@
 
 所有产出写入 Obsidian Vault 的「上课记录」分区：`备课内容 / 课堂文字稿 / 课后反馈 / 学生档案`。
 
-## 安装
+## 安装（新电脑）
 
 ```bash
 git clone https://github.com/<you>/physics-class-pipeline.git
@@ -18,7 +18,16 @@ cd physics-class-pipeline
 bash setup.sh
 ```
 
-`setup.sh` 一键完成：依赖检查 → BlackHole 虚拟声卡 + 多输出设备 → 探测 Obsidian Vault → 写 config.json → 注册 launchd 任务 → 链接到 `~/.qoder/skills` 与 `~/.codex/skills`。重复运行安全。
+`setup.sh` 一键完成：依赖检查（缺 ffmpeg 自动 brew 安装）→ BlackHole 虚拟声卡 → 探测 Obsidian Vault → 写 config.json → 创建后台应用并注册 launchd 任务 → 弹出系统麦克风授权窗口 → 链接到 `~/.qoder/skills` 与 `~/.codex/skills`。重复运行安全。
+
+安装过程中系统会要求您做 4 件事（macOS 安全机制，无法再省）：
+
+1. 输入一次管理员密码（安装 BlackHole 驱动时）
+2. **重启一次 Mac**（BlackHole 驱动生效必需），重启后再跑一次 `bash setup.sh`
+3. 在弹出的「访问麦克风」窗口点一次【允许】
+4. `~/.zshrc` 里有 `GROQ_API_KEY`（转写用，https://console.groq.com/keys 免费）
+
+可选：想录到学生声音，在「音频 MIDI 设置」手动建一个多输出设备（扬声器+BlackHole，30 秒），或在会议 App 里把扬声器设为 BlackHole 2ch。
 
 卸载：`bash uninstall.sh`（保留录音数据与笔记）。
 
