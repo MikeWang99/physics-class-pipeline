@@ -21,6 +21,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CONFIG = SKILL_DIR / "config.json"
+SYLLABI_DIR = Path.home() / "physics-class-pipeline-data" / "syllabi"
 PLACEHOLDER = "> AI 生成中..."
 
 APPLESCRIPT = """
@@ -67,6 +68,59 @@ def latest_file_for_student(folder: Path, student: str) -> Path | None:
         return None
     hits = [p for p in sorted(folder.glob("*.md")) if student.lower() in p.name.lower()]
     return hits[-1] if hits else None
+
+
+
+def find_syllabus(system: str) -> str:
+    """在 syllabi 目录中查找匹配体系的 syllabus 文本。"""
+    if not SYLLABI_DIR.exists():
+        return ""
+    # 尝试匹配文件名中包含体系关键词的 .txt 文件
+    system_lower = system.lower().replace(" ", "")
+    for f in sorted(SYLLABI_DIR.glob("*.txt")):
+        fname_lower = f.name.lower().replace("_", "").replace("-", "").replace(" ", "")
+        if system_lower in fname_lower or "cie" in system_lower and "cie" in fname_lower:
+            return f.read_text(encoding="utf-8", errors="replace")
+    return ""
+
+
+def extract_relevant_syllabus(syllabus_text: str, student_progress: str, max_chars: int = 4000) -> str:
+    """从 syllabus 全文中提取与学生当前进度相关的章节。"""
+    if not syllabus_text:
+        return ""
+    
+    # 从学生档案中提取当前章节编号（如 "1.5"）
+    current_section = ""
+    m = re.search(r'(\d+\.\d+)', student_progress)
+    if m:
+        current_section = m.group(1)
+    
+    if not current_section:
+        return syllabus_text[:max_chars]
+    
+    # 提取当前章节及后续 2-3 个章节的内容
+    lines = syllabus_text.split('\n')
+    result = []
+    capturing = False
+    section_count = 0
+    current_num = tuple(int(x) for x in current_section.split('.'))
+    
+    for line in lines:
+        # 检测章节标题（如 "1.5 Forces" 或 "1.6 Momentum"）
+        m = re.match(r'^(\d+)\.(\d+)\s+(.+)', line.strip())
+        if m:
+            sec_num = (int(m.group(1)), int(m.group(2)))
+            if sec_num >= current_num:
+                if not capturing:
+                    capturing = True
+                section_count += 1
+                if section_count > 4:  # 最多取当前+后续3个章节
+                    break
+        if capturing:
+            result.append(line)
+    
+    text = '\n'.join(result)
+    return text[:max_chars] if text else syllabus_text[:max_chars]
 
 
 def build_skeleton(when: str, system: str, student: str, notes: str,
@@ -157,6 +211,14 @@ def groq_generate(prompt: str, api_key: str) -> str:
 def generate_teaching_plan(system: str, student: str, profile_md: str,
                            last_feedback_md: str, api_key: str) -> dict:
     """用 Groq 生成备课四段内容。"""
+    # 读取 syllabus
+    syllabus_text = find_syllabus(system)
+    relevant_syllabus = extract_relevant_syllabus(syllabus_text, profile_md)
+    syllabus_section = f"""
+OFFICIAL SYLLABUS (relevant sections for this student's current level):
+{relevant_syllabus}
+""" if relevant_syllabus else "CURRICULUM SYSTEM: " + system + " (use the official syllabus for this system)"
+
     prompt = f"""You are an experienced physics tutor preparing a lesson plan.
 
 STUDENT PROFILE:
@@ -165,7 +227,7 @@ STUDENT PROFILE:
 LAST CLASS FEEDBACK:
 {last_feedback_md[:2000]}
 
-CURRICULUM SYSTEM: {system} (use the official syllabus for this system)
+{syllabus_section}
 
 Based on the student's current progress, known issues, and the official syllabus,
 generate the following 4 sections for the NEXT lesson. Be specific and actionable.
@@ -187,9 +249,11 @@ Format your response EXACTLY as:
 
 IMPORTANT:
 - Base everything on the student's ACTUAL progress and issues, not generic content
+- Use the OFFICIAL SYLLABUS above to determine what comes NEXT after the student's current topic
 - Reference specific problems from the profile (e.g., if they struggle with trig, include trig practice)
 - The next lesson should naturally continue from where the last one ended
-- Do NOT repeat content already covered — advance the syllabus"""
+- Do NOT repeat content already covered — advance to the next syllabus section
+- Reference specific syllabus section numbers (e.g., "1.6 Momentum") in your plan"""
 
     try:
         result = groq_generate(prompt, api_key)
