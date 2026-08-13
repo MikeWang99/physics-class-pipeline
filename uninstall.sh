@@ -20,6 +20,12 @@ for dest in "$HOME/.qoder/skills/physics-class-pipeline" "$HOME/.codex/skills/ph
   if [ -L "$dest" ]; then rm "$dest"; echo "  removed: $dest"; fi
 done
 
+echo "==> 移除后台应用"
+pkill -f "physics-class-pipeline/scripts/meeting_watcher.sh" 2>/dev/null
+for app in "$HOME/Applications/PhysicsClassWatcher.app" "$HOME/Applications/PhysicsClassScanner.app"; do
+  if [ -d "$app" ]; then rm -rf "$app"; echo "  removed: $app"; fi
+done
+
 echo
 echo "完成。以下内容未删除（如需彻底清理请手动处理）："
 echo "  - BlackHole 虚拟声卡（brew uninstall --cask blackhole-2ch）"

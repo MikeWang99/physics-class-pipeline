@@ -25,6 +25,34 @@ warn() { echo "  ⚠️  $*"; }
 fail() { echo "  ❌ $*"; }
 step() { echo; echo "==> $*"; }
 
+# Build a minimal background .app wrapper. macOS attributes TCC permission
+# prompts (microphone / files) to the app bundle, so launching our scripts
+# inside an app is what makes the one-click "Allow" dialog appear.
+make_app() {
+  local name="$1" bundleid="$2" cmd="$3"
+  local app="$HOME/Applications/$name.app"
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS"
+  cat > "$app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>$bundleid</string>
+  <key>CFBundleName</key><string>$name</string>
+  <key>CFBundleExecutable</key><string>$name</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>LSUIElement</key><true/>
+</dict></plist>
+EOF
+  printf '#!/bin/bash\nexec %s\n' "$cmd" > "$app/Contents/MacOS/$name"
+  chmod +x "$app/Contents/MacOS/$name"
+  codesign --force --sign - "$app" >/dev/null 2>&1 || true
+  # register with LaunchServices so TCC attributes the permission prompt to the app
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$app" >/dev/null 2>&1 || true
+  echo "$app"
+}
+
 # ---------- 1. dependencies ----------
 step "1/7 依赖检查"
 MISSING=()
@@ -88,9 +116,13 @@ if [ -n "$VAULT" ]; then
   ok "Vault 笔记分区已就绪：上课记录/{备课内容,课堂文字稿,课后反馈,学生档案}"
 fi
 
-# ---------- 6. launchd jobs ----------
-step "6/7 注册 launchd 定时任务"
-mkdir -p "$HOME/Library/LaunchAgents"
+# ---------- 6. launchd jobs + permission guidance ----------
+step "6/7 注册后台任务并引导系统授权"
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Applications"
+
+APP_WATCH="$(make_app "PhysicsClassWatcher" "com.physicsclass.watcher" "bash '$SKILL_DIR/scripts/meeting_watcher.sh'")"
+APP_SCAN="$(make_app "PhysicsClassScanner" "com.physicsclass.scanner" "/usr/bin/python3 '$SKILL_DIR/scripts/preclass_scan.py'")"
+ok "后台应用已创建：PhysicsClassWatcher（录音监听）/ PhysicsClassScanner（课前扫描）"
 
 cat > "$PLIST_SCAN" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -98,8 +130,9 @@ cat > "$PLIST_SCAN" <<EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.physicsclass.preclass-scan</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/python3</string>
-    <string>$SKILL_DIR/scripts/preclass_scan.py</string>
+    <string>/usr/bin/open</string>
+    <string>-gj</string>
+    <string>$APP_SCAN</string>
   </array>
   <key>StartCalendarInterval</key><dict>
     <key>Hour</key><integer>$SCAN_HOUR</integer>
@@ -116,11 +149,13 @@ cat > "$PLIST_WATCH" <<EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.physicsclass.meeting-watcher</string>
   <key>ProgramArguments</key><array>
-    <string>/bin/bash</string>
-    <string>$SKILL_DIR/scripts/meeting_watcher.sh</string>
+    <string>/usr/bin/open</string>
+    <string>-gj</string>
+    <string>$APP_WATCH</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
   <key>StandardOutPath</key><string>$DATA_DIR/logs/watcher-stdout.log</string>
   <key>StandardErrorPath</key><string>$DATA_DIR/logs/watcher-stderr.log</string>
 </dict></plist>
@@ -130,6 +165,23 @@ launchctl unload "$PLIST_SCAN" 2>/dev/null; launchctl load "$PLIST_SCAN"
 launchctl unload "$PLIST_WATCH" 2>/dev/null; launchctl load "$PLIST_WATCH"
 ok "每日 $SCAN_HOUR:${SCAN_MINUTE}0 课前扫描（com.physicsclass.preclass-scan）"
 ok "常驻会议监听（com.physicsclass.meeting-watcher）"
+
+# guided one-time microphone authorization
+echo
+echo "  ⏳ 正在启动监听程序并申请麦克风权限……"
+echo "  👉 屏幕上会弹出系统窗口「PhysicsClassWatcher 想要访问麦克风」——请点击【允许】（仅此一次，之后全自动）"
+LOGF="$DATA_DIR/logs/watcher.log"
+BASE=$(wc -l < "$LOGF" 2>/dev/null || echo 0)
+GRANTED=0
+for _ in $(seq 1 60); do
+  if tail -n +"$((BASE+1))" "$LOGF" 2>/dev/null | grep -q "MIC PERMISSION: granted"; then GRANTED=1; break; fi
+  sleep 2
+done
+if [ "$GRANTED" = 1 ]; then
+  ok "麦克风授权成功"
+else
+  warn "还没检测到授权完成。若未看到弹窗：打开 系统设置 → 隐私与安全性 → 麦克风，把 PhysicsClassWatcher 打开即可；完成后会自动生效。"
+fi
 
 # ---------- 7. skill install ----------
 step "7/7 安装 skill 到 AI 助手"

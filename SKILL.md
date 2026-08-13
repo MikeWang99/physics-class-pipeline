@@ -29,7 +29,7 @@ description: 物理教学课前/课中/课后全链路自动化。课前定时�
 bash {skill_dir}/setup.sh
 ```
 
-setup.sh 会自动完成：依赖检查（brew/ffmpeg/python3/swift）→ 安装 BlackHole 虚拟声卡 → 创建多输出音频设备（会议声音+BlackHole，录音时不静音）→ 探测 Obsidian Vault → 读取 GROQ_API_KEY → 注册两个 launchd 任务（每日 10:00 课前扫描 + 常驻会议监听）→ 安装 skill 到 `~/.qoder/skills` 与 `~/.codex/skills`。全程打印每一步结果。卸载用 `uninstall.sh`。
+setup.sh 会自动完成：依赖检查（brew/ffmpeg/python3/swift）→ 安装 BlackHole 虚拟声卡 → 创建多输出音频设备（会议声音+BlackHole，录音时不静音）→ 探测 Obsidian Vault → 读取 GROQ_API_KEY → 创建后台应用 PhysicsClassWatcher/PhysicsClassScanner 并注册两个 launchd 任务（每日 10:00 课前扫描 + 常驻会议监听）→ 自动弹出系统麦克风授权窗口并等待用户点一次「允许」→ 安装 skill 到 `~/.qoder/skills` 与 `~/.codex/skills`。全程打印每一步结果。卸载用 `uninstall.sh`。
 
 ## 2. 课前：备课内容生成
 
@@ -90,5 +90,6 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 |---|---|
 | 录音文件无声/只有单方 | 确认系统输出设备是 `PhysicsClass Multi-Output`（setup 创建）；运行 `scripts/setup_audio.sh check` |
 | 没检测到开会 | 运行 `bash scripts/meeting_watcher.sh once` 看检测日志；浏览器开 Meet 需在 Chrome/Safari 且标签页可见 |
+| 日志报 `MIC PERMISSION: missing` | 麦克风未授权：打开 系统设置→隐私与安全性→麦克风，把 PhysicsClassWatcher 打开（或重跑 setup.sh 触发弹窗） |
 | 转写失败 | 检查 `GROQ_API_KEY`（`~/.zshrc`），看 `{recordings_dir}/logs/watcher.log` |
 | 定时任务没跑 | `launchctl list \| grep physicsclass` 确认任务在；plist 在 `~/Library/LaunchAgents/` |

@@ -36,14 +36,23 @@ notify() {
 }
 
 # ---------- audio device lookup ----------
-# launchd processes cannot see microphone devices until macOS grants mic access.
-# Actually opening a capture stream triggers the system permission prompt, so
-# try a 1-second capture once per day; user approves once and it sticks.
+# launchd/background processes cannot see microphone devices until macOS grants
+# mic access to the responsible app. Actually opening a capture stream triggers
+# the system permission prompt, so try a 1-second capture; user approves once.
 mic_permission() {
   local stamp="$LOG_DIR/.mic_perm_ok"
   if [ -f "$stamp" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$(date '+%Y-%m-%d')" ]; then return 0; fi
   ffmpeg -hide_banner -loglevel error -f avfoundation -i ":0" -t 1 -f null - >/dev/null 2>&1
   echo "$(date '+%Y-%m-%d')" > "$stamp"
+}
+
+# one-shot self test at startup; setup.sh polls the log for these lines
+perm_selftest() {
+  if ffmpeg -hide_banner -loglevel error -f avfoundation -i ":0" -t 1 -f null - >/dev/null 2>&1; then
+    log "MIC PERMISSION: granted"
+  else
+    log "MIC PERMISSION: missing (waiting for user to click Allow in the system dialog)"
+  fi
 }
 
 # prints "blackhole_index mic_index" from ffmpeg avfoundation device list
@@ -112,17 +121,17 @@ start_recording() {
   local platform="$1"
   mic_permission
   read -r BH MIC <<< "$(audio_indices)"
-  SESSION="$RECORD_DIR/sessions/$(date '+%Y-%m-%d_%H%M')"
-  mkdir -p "$SESSION"
-  echo "$platform" > "$SESSION/platform.txt"
   local inputs=() filters=() n=0
   if [ "$BH" != "NONE" ]; then inputs+=(-f avfoundation -i ":$BH"); filters+=("[$n:a]"); n=$((n+1)); else log "WARNING: BlackHole not found, recording mic only"; fi
   if [ "$MIC" != "NONE" ]; then inputs+=(-f avfoundation -i ":$MIC"); filters+=("[$n:a]"); n=$((n+1)); fi
   if [ "$n" -eq 0 ]; then
     log "ERROR: no audio input available (microphone permission likely missing)"
-    notify "no-input" "检测到开会但无可用音频输入：请授权麦克风（系统设置→隐私与安全性→麦克风，允许 bash/ffmpeg），录音将在下次检测重试"
-    SESSION=""; return 1
+    notify "no-input" "检测到开会但无可用音频输入：请授权麦克风（系统设置→隐私与安全性→麦克风，添加 ffmpeg 或 bash），录音将在下次检测重试"
+    return 1
   fi
+  SESSION="$RECORD_DIR/sessions/$(date '+%Y-%m-%d_%H%M')"
+  mkdir -p "$SESSION"
+  echo "$platform" > "$SESSION/platform.txt"
   local mix
   if [ "$n" -eq 1 ]; then mix="${filters[0]}acopy"
   else mix="$(IFS=; echo "${filters[*]}")amix=inputs=$n:duration=longest"; fi
@@ -174,6 +183,7 @@ fi
 
 # daemon loop
 log "watcher started (pid $$)"
+perm_selftest
 miss=0
 while true; do
   platform=$(meeting_running) && in_meeting=1 || in_meeting=0
