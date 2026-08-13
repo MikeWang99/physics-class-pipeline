@@ -52,17 +52,22 @@ create_multi_output() {
     log "Multi-output device '$MO_NAME' already exists."
     return 0
   fi
-  log "Creating multi-output device '$MO_NAME' (default output + BlackHole)..."
-  if swift "$SWIFT_SRC" "$MO_NAME"; then
-    log "Multi-output device created."
-  else
-    log "WARNING: automatic creation failed. Create it manually:"
-    log "  1. Open 'Audio MIDI Setup' (音频 MIDI 设置)"
-    log "  2. Click '+' -> Create Multi-Output Device"
-    log "  3. Tick your speakers/headphones AND 'BlackHole 2ch'"
-    log "  4. Rename it to: $MO_NAME"
-    return 1
+  log "Trying to create multi-output device '$MO_NAME' automatically..."
+  if swift "$SWIFT_SRC" "$MO_NAME" >/dev/null 2>&1; then
+    osascript -e 'do shell script "killall coreaudiod" with administrator privileges' >/dev/null 2>&1 || true
+    sleep 5
+    if device_exists "$MO_NAME"; then
+      log "Multi-output device '$MO_NAME' is now active."
+      return 0
+    fi
   fi
+  log "Automatic creation not supported on this macOS version. Two alternatives:"
+  log "  A) (one-time, 30s) Open 'Audio MIDI Setup' (音频 MIDI 设置) -> '+' ->"
+  log "     Create Multi-Output Device -> tick your speakers + 'BlackHole 2ch' ->"
+  log "     right-click rename to: $MO_NAME"
+  log "  B) In your meeting app (Zoom/TencentMeeting), set the SPEAKER/扬声器 to"
+  log "     'BlackHole 2ch' — student audio then flows straight into the recording."
+  return 0   # non-blocking: recording still works with the mic
 }
 
 device_exists() {

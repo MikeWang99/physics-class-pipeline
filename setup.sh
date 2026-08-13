@@ -28,9 +28,15 @@ step() { echo; echo "==> $*"; }
 # Build a minimal background .app wrapper. macOS attributes TCC permission
 # prompts (microphone / files) to the app bundle, so launching our scripts
 # inside an app is what makes the one-click "Allow" dialog appear.
+# IMPORTANT: TCC grants are bound to the app's code signature — NEVER rebuild
+# or re-sign an existing app, or the previously granted permission is voided.
 make_app() {
   local name="$1" bundleid="$2" cmd="$3"
   local app="$HOME/Applications/$name.app"
+  if [ -x "$app/Contents/MacOS/$name" ] && [ -f "$app/Contents/Info.plist" ]; then
+    echo "$app"   # keep existing bundle + signature, preserve TCC grant
+    return 0
+  fi
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS"
   cat > "$app/Contents/Info.plist" <<EOF

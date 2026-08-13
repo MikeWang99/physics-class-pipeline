@@ -11,6 +11,9 @@
 #   bash meeting_watcher.sh once     # record one session manually (Ctrl-C to stop)
 set -u
 
+# launchd / .app contexts have a minimal PATH; add common Homebrew locations
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG="$SKILL_DIR/config.json"
@@ -60,7 +63,11 @@ audio_indices() {
   local listing bh mic
   listing=$(ffmpeg -hide_banner -f avfoundation -list_devices true -i "" 2>&1)
   bh=$(echo "$listing" | grep -i "blackhole" | head -1 | grep -o '\[[0-9]*\]' | head -1 | tr -d '[]')
-  mic=$(echo "$listing" | awk '/AVFoundation audio devices/{f=1} f' | grep -iE "microphone|麦克风" | head -1 | grep -o '\[[0-9]*\]' | head -1 | tr -d '[]')
+  # prefer physical mics; iPhone continuity mics stall and freeze amix
+  mic=$(echo "$listing" | grep -iE "外置|内置|built-in|macbook|microphone" | grep -vi "iphone" | head -1 | grep -o '\[[0-9]*\]' | head -1 | tr -d '[]')
+  if [ -z "$mic" ]; then
+    mic=$(echo "$listing" | grep -iE "麦克风|microphone" | grep -vi "iphone" | head -1 | grep -o '\[[0-9]*\]' | head -1 | tr -d '[]')
+  fi
   echo "${bh:-NONE} ${mic:-NONE}"
 }
 
@@ -116,9 +123,28 @@ meeting_running() {
 # ---------- recording ----------
 SESSION=""
 FFPID=""
+NOTIFY_STAMP=""
+
+# avoid notification spam: at most one no-input notification per 10 minutes
+notify_throttled() {
+  local now=$(date +%s)
+  if [ -n "$NOTIFY_STAMP" ] && [ $((now - NOTIFY_STAMP)) -lt 600 ]; then return; fi
+  NOTIFY_STAMP=$now
+  notify "$1" "$2"
+}
 
 start_recording() {
   local platform="$1"
+  # dedupe: an orphaned ffmpeg (from a previous watcher instance) may already
+  # be recording this meeting — adopt it instead of starting a duplicate
+  local existing
+  existing=$(pgrep -f "ffmpeg.*$RECORD_DIR/sessions" | head -1 || true)
+  if [ -n "$existing" ]; then
+    log "existing recording ffmpeg (pid $existing) found, adopting instead of duplicate start"
+    FFPID="$existing"
+    SESSION=$(ps -o command= -p "$existing" | grep -o "$RECORD_DIR/sessions/[^ ]*" | head -1 | xargs dirname)
+    return 0
+  fi
   mic_permission
   read -r BH MIC <<< "$(audio_indices)"
   local inputs=() filters=() n=0
@@ -126,16 +152,18 @@ start_recording() {
   if [ "$MIC" != "NONE" ]; then inputs+=(-f avfoundation -i ":$MIC"); filters+=("[$n:a]"); n=$((n+1)); fi
   if [ "$n" -eq 0 ]; then
     log "ERROR: no audio input available (microphone permission likely missing)"
-    notify "no-input" "检测到开会但无可用音频输入：请授权麦克风（系统设置→隐私与安全性→麦克风，添加 ffmpeg 或 bash），录音将在下次检测重试"
+    log "DEBUG device listing follows:"
+    ffmpeg -hide_banner -f avfoundation -list_devices true -i "" >> "$LOG" 2>&1 || true
+    notify_throttled "no-input" "检测到开会但无可用音频输入：请授权麦克风（系统设置→隐私与安全性→麦克风，打开 PhysicsClassWatcher），录音将在下次检测重试"
     return 1
   fi
-  SESSION="$RECORD_DIR/sessions/$(date '+%Y-%m-%d_%H%M')"
+  SESSION="$RECORD_DIR/sessions/$(date '+%Y-%m-%d_%H%M%S')"
   mkdir -p "$SESSION"
   echo "$platform" > "$SESSION/platform.txt"
   local mix
   if [ "$n" -eq 1 ]; then mix="${filters[0]}acopy"
   else mix="$(IFS=; echo "${filters[*]}")amix=inputs=$n:duration=longest"; fi
-  ffmpeg -hide_banner -loglevel error "${inputs[@]}" \
+  ffmpeg -nostdin -y -hide_banner -loglevel error "${inputs[@]}" \
     -filter_complex "$mix" -ac 1 -ar 44100 -c:a pcm_s16le \
     "$SESSION/audio.wav" >> "$LOG" 2>&1 &
   FFPID=$!
@@ -183,6 +211,14 @@ fi
 
 # daemon loop
 log "watcher started (pid $$)"
+# crash recovery: transcribe orphaned recordings left by a previous instance
+for f in "$RECORD_DIR"/sessions/*/audio.wav; do
+  [ -f "$f" ] || continue
+  if ! pgrep -qf "ffmpeg.*$(basename "$(dirname "$f")")"; then
+    log "adopting orphaned recording: $f"
+    transcribe_session "$(dirname "$f")"
+  fi
+done
 perm_selftest
 miss=0
 while true; do
@@ -194,6 +230,15 @@ while true; do
     if [ -n "$FFPID" ]; then
       miss=$((miss+1))
       if [ "$miss" -ge "$MISS_LIMIT" ]; then stop_recording; fi
+    else
+      # meeting gone and we hold no recording — finalize any orphaned one
+      for f in "$RECORD_DIR"/sessions/*/audio.wav; do
+        [ -f "$f" ] || continue
+        if ! pgrep -qf "ffmpeg.*$(basename "$(dirname "$f")")" && [ ! -f "$(dirname "$f")/transcript.txt" ]; then
+          log "meeting over, transcribing orphaned recording: $f"
+          transcribe_session "$(dirname "$f")"
+        fi
+      done
     fi
   fi
   sleep "$INTERVAL"
