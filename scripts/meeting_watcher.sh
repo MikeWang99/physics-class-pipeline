@@ -199,12 +199,45 @@ transcribe_session() {
     export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
   fi
   if python3 "$SCRIPT_DIR/transcribe_audio.py" "$dir/audio.wav" "$dir" >> "$LOG" 2>&1; then
-    # 自动生成课后反馈
-    if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" >> "$LOG" 2>&1; then
-      OUTFILE=$(tail -1 "$LOG" | grep -o "$VAULT_PATH/.*" | head -1)
-      notify "done" "转写完成，课后反馈已生成 ✅"
+    # 归档文字稿到 Vault（无论是否有日历日程）
+    MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" 2>/dev/null) || MATCH=""
+    if [ -n "$MATCH" ]; then
+      SYS="${MATCH%%|*}"
+      STU="${MATCH##*|}"
+      ARCHIVE_DIR="$VAULT_PATH/上课记录/课堂文字稿"
+      mkdir -p "$ARCHIVE_DIR"
+      ARCHIVE_FILE="$ARCHIVE_DIR/${DATE:-$(date '+%Y-%m-%d')} ${SYS} Class-${STU}.md"
+      # 加 front matter
+      DUR=$(python3 -c "import subprocess; print(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','$dir/audio.wav'],text=True).strip())" 2>/dev/null || echo "?")
+      {
+        echo "---"
+        echo "date: $(date '+%Y-%m-%d')"
+        echo "student: $STU"
+        echo "system: $SYS"
+        echo "duration: ${DUR}s"
+        echo "source: $dir/audio.wav"
+        echo "---"
+        echo
+        cat "$dir/transcript.txt"
+      } > "$ARCHIVE_FILE"
+      log "archived transcript to $ARCHIVE_FILE"
     else
-      notify "done" "转写完成 ✅（反馈生成失败，查看日志）"
+      log "no calendar match, transcript not archived to vault"
+    fi
+    # 只有日历有对应日程时才生成课后反馈
+    if [ -n "$MATCH" ]; then
+      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" >> "$LOG" 2>&1; then
+        notify "done" "转写完成，文字稿已归档，课后反馈已生成 ✅"
+      else
+        RC=$?
+        if [ "$RC" -eq 2 ]; then
+          notify "done" "转写完成，文字稿已归档（无日历日程，跳过反馈）"
+        else
+          notify "done" "转写完成 ✅（反馈生成失败，查看日志）"
+        fi
+      fi
+    else
+      notify "done" "转写完成，文字稿已归档（零散会议，跳过反馈）"
     fi
   else
     touch "$dir/.transcribe_failed"
