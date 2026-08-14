@@ -23,6 +23,7 @@ if [ -n "${3:-}" ] && [ -n "${4:-}" ]; then
   STUDENT="$4"
 else
   MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" "$SESSION_DIR" 2>/dev/null) || { echo "no calendar match, skipping feedback"; exit 2; }
+  MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" "$SESSION_DIR" 2>/dev/null) || { echo "no calendar match, skipping feedback"; exit 2; }
   SYSTEM="${MATCH%%|*}"
   STUDENT="${MATCH##*|}"
 fi
