@@ -79,8 +79,22 @@ if [ -z "$GROQ_API_KEY" ] && [ -f "$HOME/.zshrc" ]; then
 fi
 [ -z "$GROQ_API_KEY" ] && { echo "GROQ_API_KEY not found"; exit 1; }
 
-# Build prompt - parent-lesson-feedback skill 四段式规范
+# 读取融合进本 skill 的反馈写作规范（原 parent-lesson-feedback skill）
+FEEDBACK_SPEC_FILE="$SCRIPT_DIR/../docs/feedback-spec.md"
+if [ -f "$FEEDBACK_SPEC_FILE" ]; then
+  FEEDBACK_SPEC=$(head -c 12000 "$FEEDBACK_SPEC_FILE")
+else
+  # 兜底：规范文件丢失时的最小规则集
+  FEEDBACK_SPEC="四段式输出：「1. 本节课内容」「2. 本节课进步」（提升表现/具体例子/阶段判断）「3. 孩子本节课暴露问题」（最多两条，带 新增/好转中/稳定 标签）「4. 下一步计划」（过去的问题/下节课安排/其他安排）。第一行必须是：本节课反馈：篇幅 400-600 字，只基于文字稿证据，问题跟踪与学生档案保持用词一致。"
+fi
+
+# Build prompt - 注入完整反馈写作规范（docs/feedback-spec.md）
 PROMPT="你是一位物理老师，要给家长写课后反馈。严格遵循以下规范：
+
+【完整写作规范】
+$FEEDBACK_SPEC
+
+以下是规范要点摘要（与上面规范冲突时以上面为准）：
 
 【核心原则】
 - 反馈是给家长的合理确定性，不是课堂流水账
