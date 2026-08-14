@@ -1,219 +1,352 @@
-# 课后反馈写作规范（原 parent-lesson-feedback skill，已融合进本 pipeline）
+# 课后反馈写作规范（优化版）
 
-> 本文档是 physics-class-pipeline 的课后反馈写作规范（单一事实来源）。
-> `scripts/postclass_generate.sh` 生成自动反馈草稿、AI 精修反馈时都必须遵循本规范。
+## Core Principle
+
+课后反馈的目标不是复盘课堂，而是帮助家长快速回答四个问题：
+
+1. 今天学了什么？
+2. 孩子有哪些真实进步？
+3. 当前最值得关注的问题是什么？
+4. 我下一步准备怎么解决？
+
+把反馈写成一份**家长能在 1 分钟内读完的学习报告**，而不是教师课堂实录。
+
+全文默认控制在 **350–550 字**。信息不足时宁可简洁，也不要为了凑字数添加泛泛内容。
+
+核心原则：
+
+- 用家长能理解的语言表达专业判断。
+- 重点呈现“孩子现在会什么、还缺什么、下一步怎么解决”。
+- 不堆砌公式、英文术语、课堂流程或教学理论。
+- 不夸大进步，不制造焦虑，不写空泛表扬。
+- 每个关于进步或问题的判断，都必须有真实课堂证据支持。
+- 保持问题的长期连续性，不要每节课重新诊断一次学生。
 
 ---
 
-## Core principle
+## Evidence-first Workflow
 
-Treat after-class feedback as a way to give parents justified certainty, not as a class recap. Help the parent understand:
-
-1. what this lesson focused on and why;
-2. what the student can do better after the lesson;
-3. what problems still remain and what they mean;
-4. what I will do next.
-
-Build trust through accurate judgment, concrete evidence, and a clear next step. Never exaggerate problems, promise outcomes, manufacture urgency, or write empty praise.
-
-Lessons happen frequently, so the student's focus problems are tracked as a slow-evolving fixed list, not re-diagnosed from scratch every lesson. Parents should see continuity and progress across lessons, not a different diagnosis each time.
-
-## Evidence-first workflow
-
-1. Read the supplied lesson transcript, meeting notes, or teacher notes before drafting.
-2. Load the student ledger（本 pipeline 中即 `{vault_path}/上课记录/学生档案/<student-name>.md`）. If it exists, “孩子本节课暴露问题” and “下一步计划” must keep continuity with it; if not, this is the student's first feedback — diagnose from the lesson record and create the ledger after drafting (see “Student focus-issue ledger” below).
-3. Extract observable evidence:
-   - what the student could do independently;
-   - what required my prompt or demonstration;
-   - whether the student corrected an error after guidance;
-   - whether the student could apply the idea when the question changed;
-   - representative wording, answers, calculations, hesitation, correction, or study behavior.
-4. Separate facts from interpretation:
-   - Fact: what the student actually said or did.
-   - Interpretation: what that behavior suggests about understanding, expression, habits, or independence.
-5. Select only the most important evidence. Prefer details that reveal the student's learning stage over a list of isolated mistakes.
-6. Support each statement about improvement or difficulty with a short, objective example from the lesson record.
+1. 先阅读本节课提供的 transcript、meeting notes 或 teacher notes。
+2. 如果存在学生档案 / 重点问题台账，先读取，并保持与过去反馈一致。
+3. 提取可观察证据：
+   - 学生能够独立完成什么；
+   - 哪些内容需要提示；
+   - 提示后能否自行修正；
+   - 能否把方法应用到不同题型；
+   - 代表性的答案、计算、表述、犹豫或纠错行为；
+   - 作业完成情况中值得家长知道的信息。
+4. 区分事实与判断：
+   - 事实：学生实际做了什么；
+   - 判断：这说明目前理解、表达、习惯或独立性处于什么阶段。
+5. 只选择最重要的证据，不罗列所有课堂细节。
+6. 每个重要的进步或问题，都尽量用一个简短、客观的例子证明。
+7. 如果作业情况值得关注，应自然融入“本节课进步”或“孩子本节课暴露问题”，**不要单独设置“作业情况”板块**。
 
 ### Insufficient-information rule
 
-Do not invent classroom details or present generic examples as facts.
+不要编造课堂细节。
 
-If the lesson record does not contain enough evidence to identify improvement or remaining problems, stop before drafting and ask one concise question, such as:
+如果缺少足够证据判断某项进步或问题，应向老师提出一个简短问题，例如：
 
-> 老师，这次课里有没有一个最能代表孩子进步或当前困难的具体片段？比如他在哪道题、哪句话或哪一步出现了变化，经过提示后是否能够改正？
+> 老师，这次课里有没有一个最能代表孩子进步或当前困难的具体片段？比如哪道题、哪一步出现了变化，以及经过提示后是否能够自己改正？
 
-If only one required section lacks evidence, ask only for that missing information. Ask no more than three short questions at once. Continue drafting only after the teacher replies.
+如果只有一个部分缺少信息，只询问该部分。一次最多询问三个简短问题。
 
-## Student focus-issue ledger
+---
 
-Maintain one ledger per student. In this pipeline the ledger is the student profile at `{vault_path}/上课记录/学生档案/<student-name>.md` (its 「主要问题」 section serves as the focus-issue ledger). Read it before drafting; update it after the feedback is finalized. The legacy path `students/<student-name>_focus_issues.md` is equivalent if it exists.
+## Student Focus-Issue Ledger
 
-Ledger format:
+学生的问题是长期跟踪项，而不是每节课重新诊断。
 
-```markdown
-# <学生名>重点问题台账
+如果系统中存在学生重点问题台账：
 
-最后更新：YYYY-MM-DD（对应课次日期）
+- 起草前读取台账。
+- 保持同一问题的命名和描述连续一致。
+- 只有出现新的、明确且可重复的证据时，才新增问题。
+- 一次性的低级失误不要直接定义为新问题。
+- 已明显解决的问题，应从“当前问题”中移除，并在“本节课进步”中简短说明。
+- 过去的问题不能因为本节课没有出现就被默认遗忘；需要根据实际情况判断是否继续跟进。
+- 如果本节课没有出现某个持续跟踪问题的新证据，不要编造表现，可以写“本节课未出现新的明显表现，继续观察”。
 
-## 进行中问题
+建议问题阶段统一使用：
 
-### 1. <问题名>
-- 阶段：新增 / 好转中 / 稳定
-- 首次出现：YYYY-MM-DD
-- 描述：一句话概括该学习问题
-- 最近证据：最近一节课的可观察证据
-- 下一步：当前的针对性安排
+- `（新增）`：本节课首次发现，并有明确证据支持；
+- `（好转中）`：之前存在，本节课出现了明显改善；
+- `（稳定）`：问题仍存在，目前没有明显改善或恶化；
+- 已解决问题不出现在“暴露问题”部分。
 
-## 已解决问题
+---
 
-### <问题名>（解决于 YYYY-MM-DD）
-- 一句话概括解决过程与证据
-```
+# Required Output Structure
 
-Ledger update rules:
+每次完成的反馈必须以：
 
-- Advance a stage only when the lesson record provides supporting evidence (`新增 → 好转中 → 解决`); if a problem recurs, regress `好转中` back to `稳定` and note why.
-- Move solved issues from “进行中问题” to “已解决问题” with the resolution date.
-- Do not guess the student's name; if no ledger exists, ask the user for the student's name before creating one.
-- After updating the ledger, report the key ledger changes to the user in one short line.
+`本节课反馈：`
 
-## Required output structure
+开头。
 
-Begin every finished message with the exact line `本节课反馈：`.
+固定使用以下四个标题：
 
-Use exactly the following four headings unless the user explicitly requests another structure:
+`「1. 本节课内容」`
 
-- `「1. 本节课内容」`
-- `「2. 本节课进步」`
-- `「3. 孩子本节课暴露问题」`
-- `「4. 下一步计划」`
+`「2. 本节课进步」`
 
-Use both Chinese corner brackets `「」` around every major heading to make it visually prominent. Do not render major headings as Markdown headings or bold text. Insert one blank line after `本节课反馈：` and one blank line between every major section so the message remains easy to scan in WeChat. Write as a direct WeChat message from the teacher, using “我”, not “老师” or “经过老师”.
+`「3. 孩子本节课暴露问题」`
 
-Follow this plain-text skeleton:
+`「4. 下一步计划」`
 
-```text
-本节课反馈：
+使用中文角括号 `「」`。
 
-「1. 本节课内容」
-...
+不要把一级标题写成 Markdown 标题或加粗标题。
 
-「2. 本节课进步」
-提升表现：
-...
-具体例子：
-...
-阶段判断：
-...
+各一级部分之间留一个空行，方便直接复制到微信发送。
 
-「3. 孩子本节课暴露问题」
-一：...（新增）
-本节课表现：
-...
-我的判断：
-...
+使用第一人称教师表达，例如“我观察到”“我会”“经过我的提示”。不要写“老师认为”“经过老师讲解”。
 
-二：...（好转中）
-本节课表现：
-...
-我的判断：
-...
+---
 
-「4. 下一步计划」
-过去的问题：
-...
+## 1. 本节课内容
 
-下节课安排：
-...
+目标：让家长知道本节课学了什么，以及为什么值得关注。
 
-其他安排：
-...
-```
+写法：
 
-### 1. 本节课内容
+- 直接列出本节课的 1–3 个主要学习模块。
+- 每个模块使用一个简短标题，再补一句说明。
+- 不要写“今天主要学习两个部分”之类的开场。
+- 不要按课堂时间顺序复盘。
+- 不要罗列所有公式、题目和教学步骤。
+- 如果本章节与后续内容有明确关系，可以用一句话说明其作用。
+- 优先使用家长能理解的中文；必要时保留英文章节名称。
 
-Explain the lesson focus with moderate detail:
+推荐形式：
 
-- state the main topic;
-- explain the purpose of the lesson;
-- mention two to four important abilities or connections covered;
-- connect the lesson with prior or future learning when relevant.
+- **受力分析**：……
+- **Energy（能量）**：……
 
-Do not turn this section into a chronological recap or a detailed syllabus. Avoid listing every formula, question, or teaching step. Use plain language that a parent with no subject knowledge can understand.
+如果有明显的后续知识铺垫，可以在最后补一句：
 
-### 2. 本节课进步
+> 这一部分也是后续 XXX 的基础。
 
-State what changed as a result of the lesson, not merely what the student completed.
+---
 
-For each meaningful improvement, use this internal structure:
+## 2. 本节课进步
 
-- `提升表现：` Describe what the student can now recognize, explain, correct, or complete better than before.
-- `具体例子：` Give one brief classroom example showing the change, including the level of prompting when relevant.
-- `阶段判断：` Clarify whether the improvement is independent, achieved with light prompting, or still emerging.
+这一部分直接呈现“孩子本节课变得更会什么”。
 
-Only claim improvement when the lesson record shows a before-and-after change or a stronger performance later in the lesson. Do not equate “followed my explanation” with “mastered independently.” When a previously tracked focus problem becomes solved, mention it here in one sentence.
+**不要写：**
 
-### 3. 孩子本节课暴露问题
+> 整体来看，这节课孩子有明显进步。
 
-This section is a continuous tracking list, not a fresh per-lesson diagnosis. It combines problems newly exposed in this lesson with all past ongoing problems, so parents see both what surfaced today and that earlier problems are not forgotten. The issue list must stay continuous with the student ledger (or the previous feedback). Rules:
+因为整个部分本身就是为了呈现进步。
 
-- Focus on the main issues: section 3 lists at most about two issues — the most important ongoing past problems plus the most notable newly exposed ones. Parents need the highlights, not an exhaustive list.
-- Carry forward past problems: past problems must never silently disappear. The key ones being actively worked on belong in section 3; any tracked issue not listed there must still be mentioned in section 4 under `过去的问题：` or `其他安排：`, with a note that it keeps being worked on (e.g. “这是之前就在持续跟进的问题，接下来仍会重点抓”).
-- Wording continuity: reuse the same issue summary wording as previous lessons; never rename or re-diagnose the same problem.
-- Status tracking: append a stage label in round brackets to each issue — `（新增）`, `（好转中）`, or `（稳定）`. Solved issues are removed from this section and mentioned in one sentence under “本节课进步”.
-- Add a new issue only when the lesson record shows clear, repeatable evidence; a one-off slip never creates a new entry.
-- When no ledger exists (first feedback), diagnose from the lesson record, label every entry `（新增）`, and create the ledger after drafting.
+推荐按能力模块组织，通常写 1–2 个模块，例如：
 
-Number each issue with Chinese numerals such as `一：`, `二：`. Put a blank line between issues. For each issue, use this internal structure:
+> 一、受力分析  
+> - ……  
+> - ……
 
-- `一：<问题概括>（<阶段>）` State the learning issue in tactful, precise language, matching the ledger wording; do not add a separate `当前问题：` label.
-- `本节课表现：` Cite real evidence from this lesson: an answer, wording, a step, hesitation, or a response to a prompt. If a carried-forward issue showed no new evidence this lesson, say so plainly (e.g. “本节课未出现新的明显表现，继续观察”) instead of inventing evidence.
-- `我的判断：` Explain what the current stage means and why it matters for later learning.
+> 二、能量  
+> - ……  
+> - ……
 
-Example:
+每个模块使用 1–3 个 bullet point。
 
-> 一：物理描述不够严谨，常漏掉判分关键词（好转中）  
-> 本节课表现：在描述运动状态的题目中，孩子主动写出了“匀加速”和“匀速”，仅“terminal velocity”一处需要我提醒。  
-> 我的判断：表达正在向判分标准靠拢，但关键词全覆盖还不稳定，需要继续整句练习巩固。
+重点描述：
 
-Keep examples objective, specific, brief, and parent-readable. Use technical detail only when it helps prove the diagnosis. Do not overload the parent with formulas or solution steps.
+- 从不会 / 不确定 → 能够完成；
+- 从需要较多提示 → 只需要少量提示；
+- 从单一题型 → 能迁移到类似题型；
+- 从错误 → 能够理解并自行修正；
+- 作业完成质量出现值得关注的变化。
 
-### 4. 下一步计划
+### Evidence rule
 
-The plan uses a simple two-part structure instead of a per-issue checklist, so it stays short and parent-friendly:
+只有当课堂记录显示出前后变化，才能称为“进步”。
 
-- `过去的问题：` Name the past problems still being tracked and give the overall approach for how they will keep being addressed. This is where parents see earlier problems are not forgotten. Keep it to one short paragraph.
-- `下节课安排：` State the concrete arrangement for the next lesson (topic or focus practice, and why it matters). Keep it to one short paragraph.
-- `其他安排：` Optional. Homework format, schedule, or minor habit items (e.g. units) that do not deserve a full section-3 entry. One or two sentences.
+不要把：
 
-Avoid empty phrases such as “继续加强”“多做练习” or “回家复习.” Even in the short format, each arrangement must say something concrete. Do not include family-cooperation advice unless the user specifically asks for it.
+> 听懂了我的解释
 
-## Writing rules
+直接写成：
 
-- Write for a parent who may know nothing about the subject.
-- Use first-person teacher language such as “我会”“我观察到”“经过我的提示”.
-- Lead with judgments, evidence, and next actions; omit routine classroom chronology.
-- Use calm, tactful, precise language. Describe the problem without labeling the child.
-- Prefer “掌握尚不稳定”“在提示下可以完成，独立应用仍需巩固” over “基础很差”“脑子乱”“完全不会”.
-- Preserve seriousness through stage descriptions and learning consequences, not alarming adjectives.
-- Acknowledge genuine progress, but do not use praise as filler.
-- Keep the default response compact enough to send directly through WeChat. Unless the user requests detail, target roughly 400–600 Chinese characters for the complete feedback, use one concise paragraph per label (one to three short sentences each), include only the strongest one or two improvements and at most about two focus issues, and avoid repeating the same stage judgment in multiple sections. Expand only when requested.
-- Use the student's name or “孩子” according to the user's preference. Do not guess a name or gender.
-- Combine the structure with the actual lesson content. Never reuse a previous lesson's topic, example, improvement, or diagnosis merely because the wording fits the template.
-- Keep labels such as `提升表现：`, `具体例子：`, `阶段判断：`, `本节课表现：`, `我的判断：`, `过去的问题：`, `下节课安排：`, and `其他安排：` on their own lines when followed by a paragraph.
+> 已经掌握。
 
-## Quality check
+如果学生是在提示后完成，应明确表达：
 
-Before sending, verify:
+> 在提示后能够正确完成，独立应用仍需巩固。
 
-1. Does the message begin with `本节课反馈：` and use the four exact corner-bracket headings?
-2. Is there a blank line between every major section?
-3. Does “本节课内容” provide enough context without becoming a detailed class recap?
-4. Is every claimed improvement supported by a real classroom example?
-5. Is every tracked ledger issue covered somewhere in the message (section 3 or section 4), with stage labels and wording consistent with the student ledger, and every issue listed in section 3 supported by real evidence from this lesson?
-6. Are fact and inference clearly separated?
-7. Can a non-specialist understand why each example matters?
-8. Does “下一步计划” contain both `过去的问题：` (tracked past problems plus the overall approach) and `下节课安排：` (a concrete next-lesson arrangement)?
-9. Are the arrangements concrete rather than vague?
-10. Did the draft avoid invented details, stale examples from other lessons, vague praise, overpromising, fear-based language, and unnecessary family instructions?
-11. Was the student ledger read before drafting and updated after drafting, and were the key ledger changes reported to the user in one line?
+### 阶段判断
+
+“本节课进步”最后可以保留一个简短的：
+
+`阶段判断：`
+
+用一句话总结孩子目前所处阶段。
+
+建议优先使用以下类型的判断：
+
+- **框架已建立**：基本理解方法，但习惯或稳定性不足。
+- **能够独立应用**：大多数基础题可以无需提示完成。
+- **正在向考试要求靠拢**：方法基本掌握，但细节、表达或迁移仍不稳定。
+- **达到考试要求**：能够稳定、独立地完成并迁移到新题。
+
+不要为了套用阶段标签而硬贴标签，应根据真实证据选择。
+
+---
+
+## 3. 孩子本节课暴露问题
+
+这是“重点问题跟踪”，不是错误清单。
+
+默认最多写 **2 个问题**，优先选择：
+
+1. 当前最重要、最影响考试表现的问题；
+2. 本节课新暴露且值得持续跟踪的问题。
+
+不要罗列所有错误。
+
+每个问题使用：
+
+`一：问题概括（新增/好转中/稳定）`
+
+`本节课表现：`
+
+`我的判断：`
+
+### 问题概括
+
+用准确、温和、家长能理解的语言。
+
+不要写：
+
+- 基础很差；
+- 完全不会；
+- 脑子乱；
+- 粗心；
+- 学得不好。
+
+优先写：
+
+- 受力分析容易漏力；
+- 单位检查习惯不稳定；
+- 物理表述不够完整；
+- 独立应用还不稳定。
+
+### 本节课表现
+
+只写真实证据。
+
+例如：
+
+> 双物块题第一次画受力图时漏掉了接触力，经过提示后能够补全。
+
+如果本节课没有出现新的证据：
+
+> 本节课未出现新的明显表现，继续观察。
+
+### 我的判断
+
+解释这个问题目前意味着什么，以及为什么值得继续关注。
+
+例如：
+
+> 基本概念已经理解，目前主要问题是画图时还没有形成完整检查的习惯，这是考试中比较容易造成失分的环节。
+
+注意：判断必须建立在证据上，不要过度推断。
+
+---
+
+## 4. 下一步计划
+
+这一部分要**简洁、具体、可执行**。
+
+只保留两个部分：
+
+### 过去的问题：
+
+用一句简短的话说明之前的问题会如何继续跟进。
+
+不要写成详细的问题清单。
+
+例如：
+
+> 继续巩固受力分析的完整画图习惯，同时持续检查单位和物理表达，避免已经理解的内容因为细节失分。
+
+### 下节课安排：
+
+直接使用 bullet point。
+
+不要写：
+
+> 下节课（周一）会按照下面的顺序进行……
+
+直接写：
+
+- 先检查本次作业，重点看受力分析是否还有漏力；
+- 完成 Energy 章节剩余内容；
+- 继续强化“完整受力图”和“单位检查”两个习惯。
+
+不需要单独设置“其他安排”。
+
+不需要设置“作业要求”板块。
+
+如果作业本身值得家长知道，应在“本节课进步”或“暴露问题”中自然体现。
+
+### 避免空泛计划
+
+不要写：
+
+- 继续加强；
+- 多做练习；
+- 回家复习；
+- 继续努力；
+- 巩固基础。
+
+每一个计划都应该明确：
+
+**练什么 / 检查什么 / 完成什么 / 为什么。**
+
+---
+
+# Writing Style
+
+- 面向没有物理专业背景的家长。
+- 简洁、清晰、专业但不生硬。
+- 让家长看到“结论”，而不是教师完整的推理过程。
+- 用具体证据建立可信度。
+- 不为了显得专业而堆砌术语。
+- 专业术语只有在能够帮助家长理解孩子进步时才保留，并尽量用一句简单中文解释。
+- 不使用过多公式。
+- 不重复相同判断。
+- 不写课堂流水账。
+- 不写空泛表扬。
+- 不制造焦虑。
+- 不承诺“几节课一定解决”之类无法保证的结果。
+- 不给家长额外布置任务，除非老师明确要求。
+- 作业表现可以写，但不要单独建立“作业情况”板块。
+- 默认 350–550 字；如果信息特别简单，可以更短。
+- 默认最多 2 个重点问题。
+- 默认最多 2 个主要进步模块。
+- 每个模块只保留最有价值的 1–3 个证据。
+
+---
+
+# Parent Perspective Check
+
+生成完成后，从家长角度检查：
+
+1. 家长能否在 1 分钟内读完？
+2. 家长是否清楚知道本节课学了什么？
+3. 家长是否能看出孩子具体进步在哪里？
+4. 家长是否知道当前最需要解决的问题？
+5. 家长是否能理解这个问题意味着什么？
+6. 家长是否知道我下一步准备怎么处理？
+7. 如果家长之前问过作业，是否能从正文中自然看到本节课作业表现？
+8. 是否避免了不必要的专业术语和课堂细节？
+9. 每个“进步”和“问题”是否都有真实证据？
+10. 是否与学生之前的问题记录保持连续？
+11. 是否避免重复表扬和空泛的“继续加强”？
+12. 是否没有凭空添加课堂上没有发生的事情？
+
+如果以上任何一项不满足，先修改再输出。
