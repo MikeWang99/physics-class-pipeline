@@ -134,6 +134,30 @@ notify_throttled() {
   notify "$1" "$2"
 }
 
+delete_audio_after_transcript() {
+  local dir="$1"
+  local audio="$dir/audio.wav"
+  local transcript="$dir/transcript.txt"
+  [ -s "$transcript" ] || { log "audio cleanup skipped: transcript missing or empty ($dir)"; return 1; }
+  [ -f "$audio" ] || { log "audio cleanup skipped: audio already absent ($dir)"; return 0; }
+
+  local bytes deleted_at
+  bytes=$(stat -f%z "$audio" 2>/dev/null || echo 0)
+  deleted_at=$(date '+%Y-%m-%d %H:%M:%S')
+  if rm -f "$audio"; then
+    {
+      echo "deleted_at: $deleted_at"
+      echo "deleted_file: $audio"
+      echo "deleted_bytes: $bytes"
+      echo "reason: transcript generated successfully"
+    } > "$dir/audio_deleted.txt"
+    log "deleted audio after transcript (session=$dir, bytes=$bytes)"
+  else
+    log "WARNING: failed to delete audio after transcript (session=$dir)"
+    return 1
+  fi
+}
+
 start_recording() {
   local platform="$1"
   # dedupe: an orphaned ffmpeg (from a previous watcher instance) may already
@@ -188,7 +212,7 @@ transcribe_session() {
   local dir="$1"
   [ -f "$dir/audio.wav" ] || { log "no audio.wav in $dir"; return; }
   # skip if already transcribed or previously failed (prevent retry storm)
-  [ -f "$dir/transcript.txt" ] && { log "already transcribed: $dir"; return; }
+  [ -f "$dir/transcript.txt" ] && { log "already transcribed: $dir"; delete_audio_after_transcript "$dir" || true; return; }
   [ -f "$dir/.transcribe_failed" ] && { log "skipping previously failed: $dir"; return; }
   local size
   size=$(stat -f%z "$dir/audio.wav" 2>/dev/null || echo 0)
@@ -199,7 +223,6 @@ transcribe_session() {
     export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
   fi
   if python3 "$SCRIPT_DIR/transcribe_audio.py" "$dir/audio.wav" "$dir" >> "$LOG" 2>&1; then
-    # 归档文字稿到 Vault（无论是否有日历日程）
     MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" 2>/dev/null) || MATCH=""
     if [ -n "$MATCH" ]; then
       SYS="${MATCH%%|*}"
@@ -215,7 +238,9 @@ transcribe_session() {
         echo "student: $STU"
         echo "system: $SYS"
         echo "duration: ${DUR}s"
-        echo "source: $dir/audio.wav"
+        echo "transcript_source: $dir/transcript.txt"
+        echo "audio_source_original: $dir/audio.wav"
+        echo "audio_retention_policy: delete_after_transcript"
         echo "---"
         echo
         cat "$dir/transcript.txt"
@@ -224,9 +249,10 @@ transcribe_session() {
     else
       log "no calendar match, transcript not archived to vault"
     fi
+    delete_audio_after_transcript "$dir" || true
     # 只有日历有对应日程时才生成课后反馈
     if [ -n "$MATCH" ]; then
-      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" >> "$LOG" 2>&1; then
+      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$SYS" "$STU" >> "$LOG" 2>&1; then
         notify "done" "转写完成，文字稿已归档，课后反馈已生成 ✅"
       else
         RC=$?
@@ -237,7 +263,7 @@ transcribe_session() {
         fi
       fi
     else
-      notify "done" "转写完成，文字稿已归档（零散会议，跳过反馈）"
+      notify "done" "转写完成，文字稿已保存在本地（零散会议，跳过反馈）"
     fi
   else
     touch "$dir/.transcribe_failed"

@@ -143,7 +143,7 @@ def main() -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pattern = os.path.join(tmp, "chunk_%03d.wav")
             subprocess.run(
-                ["ffmpeg", "-y", "-v", "error", "-i", audio, "-ac", "1", "-ar", "16000",
+                ["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", audio, "-ac", "1", "-ar", "16000",
                  "-c:a", "pcm_s16le", "-f", "segment", "-segment_time", str(CHUNK_SECONDS),
                  "-reset_timestamps", "1", pattern], check=True)
             chunks = sorted(os.path.join(tmp, f) for f in os.listdir(tmp))

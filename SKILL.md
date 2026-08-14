@@ -52,7 +52,7 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 
 - **覆盖平台**：Zoom（zoom.us）、腾讯会议（wemeetapp/xmeet）、钉钉、飞书、Google Meet（Chrome/Safari 打开 meet.google.com 标签页）
 - **检测到开课**：自动用 ffmpeg 录制 BlackHole（会议双方声音）+ 麦克风（双保险），存入 `{recordings_dir}/sessions/{YYYY-MM-DD_HHMM}/audio.wav`
-- **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → **检查日历是否有对应课程日程** → 有日程：归档文字稿到 Vault + 自动生成课后反馈草稿；无日程（零散会议）：仅归档文字稿，跳过反馈生成 → macOS 通知结果
+- **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → 转写成功后自动删除对应的 `audio.wav`（写入 `audio_deleted.txt` 删除记录）→ **检查日历是否有对应课程日程** → 有日程：归档文字稿到 Vault + 自动生成课后反馈草稿；无日程（零散会议）：保留本地文字稿，跳过反馈生成 → macOS 通知结果
 
 用户无需任何手动操作。若用户说「开始上课/手动录音」，可直接运行 `bash {skill_dir}/scripts/meeting_watcher.sh once` 强制走一轮录音+转写。
 
@@ -60,12 +60,12 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 
 散会后 watcher 自动完成以下步骤：
 
-1. **归档文字稿**：转写成功后，若日历有对应课程日程，将 `transcript.txt` 加 front matter（日期/学生/体系/时长/来源）归档到 `{vault}/上课记录/课堂文字稿/{YYYY-MM-DD} {体系} Class-{学生}.md`；零散会议（无日历日程）不归档
+1. **归档文字稿与清理音频**：转写成功后，若日历有对应课程日程，将 `transcript.txt` 加 front matter（日期/学生/体系/时长/文字稿来源/原始音频路径/音频保留策略）归档到 `{vault}/上课记录/课堂文字稿/{YYYY-MM-DD} {体系} Class-{学生}.md`；零散会议（无日历日程）不归档到 Vault，但保留本地 `transcript.txt`。确认文字稿非空并完成必要元数据读取后，立即自动删除该 session 的 `audio.wav`，避免长期堆积 400MB 级录音文件
 2. **自动生成反馈草稿**（仅当日历有对应日程时）：`postclass_generate.sh` 读取转写稿 + 学生档案 + 上次反馈，调用 Groq（llama-3.3-70b-versatile，温度 0.4）生成反馈草稿，写入 `{vault}/上课记录/课后反馈/{YYYY-MM-DD}-{学生}-feedback.md`。写作规范来自本 skill 内置的 `docs/feedback-spec.md`（四段式结构、问题台账连续性、反幻觉约束），学生名会做清洗并与档案模糊匹配（防日历标题污染）
 
 **通知逻辑**：
 - 有日历日程：「转写完成，文字稿已归档，课后反馈已生成 ✅」
-- 零散会议：「转写完成，文字稿已归档（零散会议，跳过反馈）」
+- 零散会议：「转写完成，文字稿已保存在本地（零散会议，跳过反馈）」
 
 **AI 精修部分**（可选）：用户说「精修反馈」「更新档案」时，AI 读取自动生成的反馈草稿和课堂文字稿，按本 skill 内置规范 `docs/feedback-spec.md`（原 parent-lesson-feedback skill，已融合）精修，并按规范的台账更新规则同步 `{vault}/上课记录/学生档案/{学生}.md`。
 
