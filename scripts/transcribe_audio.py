@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import sys
 import tempfile
 
@@ -72,7 +73,8 @@ def detect_proxy() -> str | None:
     return None
 
 
-def transcribe_file(path: str, api_key: str, language: str | None) -> dict:
+def transcribe_file(path: str, api_key: str, language: str | None,
+                    max_attempts: int = 3) -> dict:
     cmd = ["curl", "-s", "--max-time", "900", GROQ_URL,
            "-H", f"Authorization: Bearer {api_key}",
            "-F", f"file=@{path};type=audio/wav",
@@ -83,16 +85,27 @@ def transcribe_file(path: str, api_key: str, language: str | None) -> dict:
         cmd += ["-x", proxy]
     if language:
         cmd += ["-F", f"language={language}"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.exit(f"curl failed: {result.stderr}")
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        sys.exit(f"Unexpected response from Groq: {result.stdout[:300]}")
-    if "error" in data:
-        sys.exit(f"Groq API error: {data['error']}")
-    return data
+    last_err = ""
+    for attempt in range(1, max_attempts + 1):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            last_err = f"curl failed: {result.stderr}"
+        else:
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                last_err = f"Unexpected response from Groq: {result.stdout[:300]}"
+            else:
+                if "error" not in data:
+                    return data
+                last_err = f"Groq API error: {data['error']}"
+        # 524/超时多为代理侧瞬时故障，退避后重试
+        if attempt < max_attempts:
+            wait = 20 * attempt
+            print(f"[retry] attempt {attempt} failed ({last_err[:120]}), "
+                  f"retry in {wait}s...", flush=True)
+            time.sleep(wait)
+    sys.exit(last_err)
 
 
 def extract_segments(result: dict, offset: float) -> list:
