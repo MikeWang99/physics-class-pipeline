@@ -150,6 +150,7 @@ cat > "$PLIST_SCAN" <<EOF
     <string>-gj</string>
     <string>$APP_SCAN</string>
   </array>
+  <key>RunAtLoad</key><true/>
   <key>StartCalendarInterval</key><dict>
     <key>Hour</key><integer>$SCAN_HOUR</integer>
     <key>Minute</key><integer>$SCAN_MINUTE</integer>
