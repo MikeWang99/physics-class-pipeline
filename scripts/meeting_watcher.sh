@@ -3,8 +3,8 @@
 #
 # Loops every 15s. When a meeting app is detected it starts recording
 # (BlackHole + microphone). When the meeting has been gone for 3 consecutive
-# checks (~45s) it stops recording, transcribes via Groq Whisper and posts a
-# macOS notification.
+# checks (~45s) it stops recording, transcribes via Groq Whisper, prepares
+# transcript/feedback draft materials, and posts a macOS notification.
 #
 # Usage:
 #   bash meeting_watcher.sh          # daemon loop (used by launchd)
@@ -253,13 +253,13 @@ transcribe_session() {
     # 只有日历有对应日程时才生成课后反馈
     if [ -n "$MATCH" ]; then
       if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$SYS" "$STU" >> "$LOG" 2>&1; then
-        notify "done" "转写完成，文字稿已归档，课后反馈已生成 ✅"
+        notify "done" "转写完成，文字稿已归档，反馈草稿已准备好 ✅"
       else
         RC=$?
         if [ "$RC" -eq 2 ]; then
           notify "done" "转写完成，文字稿已归档（无日历日程，跳过反馈）"
         else
-          notify "done" "转写完成 ✅（反馈生成失败，查看日志）"
+          notify "done" "转写完成 ✅（反馈草稿准备失败，查看日志）"
         fi
       fi
     else

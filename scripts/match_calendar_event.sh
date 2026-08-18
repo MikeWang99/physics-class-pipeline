@@ -65,7 +65,6 @@ tell application "Calendar"
   repeat with cal in calendars
     repeat with ev in (every event of cal whose start date > windowStart and start date < windowEnd and summary contains keyword)
       set delta to (start date of ev) - refDate
-      set delta to (start date of ev) - refDate
       if delta < 0 then set delta to -delta
       set out to out & (delta as integer) & tab & (summary of ev as text) & linefeed
     end repeat
