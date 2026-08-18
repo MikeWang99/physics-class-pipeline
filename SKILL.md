@@ -1,11 +1,11 @@
 ---
 name: physics-class-pipeline
-description: 物理教学课前/课中/课后全链路自动化。课前定时扫描苹果日历生成备课笔记；课中自动录制会议音频；课后基于转写文字稿生成家长反馈、更新学生档案、给出作业建议。触发词：备课、课前、上课、下课、课后、全链路、class pipeline。
+description: 物理教学课前/课中/课后全链路自动化。课前定时扫描日历生成备课笔记骨架；课中自动录制会议音频；课后基于转写文字稿准备反馈草稿与资料，由当前装了 Skill 的 AI 生成正式备课内容和家长反馈。触发词：备课、课前、上课、下课、课后、全链路、class pipeline。
 ---
 
 # Physics Class Pipeline · 物理教学全链路
 
-把「课前备课 → 课中录音 → 课后反馈/档案/作业」串成一条自动化流水线。所有产出写入 Obsidian Vault 的「上课记录」分区。
+把「课前备课 → 课中录音 → 课后反馈/档案/作业」串成一条自动化流水线。Groq Whisper 只负责语音转写；备课内容、课后反馈、档案更新、作业建议都由当前执行该 Skill 的 AI 负责。所有产出写入 Obsidian Vault 的「上课记录」分区。
 
 ## 0. 通用约定
 
@@ -29,11 +29,11 @@ description: 物理教学课前/课中/课后全链路自动化。课前定时�
 bash {skill_dir}/setup.sh
 ```
 
-setup.sh 会自动完成：依赖检查（brew/ffmpeg 缺则自动装/python3/swift）→ 安装 BlackHole 虚拟声卡（需重启一次，重启后重跑 setup.sh）→ 尝试创建多输出音频设备（新系统可能失败，会提示手动替代方案，不阻塞安装）→ 探测 Obsidian Vault → 读取 GROQ_API_KEY → 创建后台应用 PhysicsClassWatcher/PhysicsClassScanner 并注册两个 launchd 任务（每日 10:00 课前扫描 + 常驻会议监听）→ 自动弹出系统麦克 风授权窗口并等待用户点一次「允许」→ 安装 skill 到 `~/.qoder/skills` 与 `~/.codex/skills`。全程打印每一步结果。卸载用 `uninstall.sh`。
+setup.sh 会自动完成：依赖检查（brew/ffmpeg 缺则自动装/python3/swift）→ 安装 BlackHole 虚拟声卡（需重启一次，重启后重跑 setup.sh）→ 尝试创建多输出音频设备（新系统可能失败，会提示手动替代方案，不阻塞安装）→ 探测 Obsidian Vault → 读取 GROQ_API_KEY（仅供转写使用）→ 创建后台应用 PhysicsClassWatcher/PhysicsClassScanner 并注册两个 launchd 任务（每日 10:00 课前扫描 + 常驻会议监听）→ 自动弹出系统麦克风授权窗口并等待用户点一次「允许」→ 安装 skill 到 `~/.qoder/skills` 与 `~/.codex/skills`。全程打印每一步结果。卸载用 `uninstall.sh`。
 
 ## 2. 课前：备课内容生成
 
-**自动部分（launchd 每天 10:00）**：`preclass_scan.py` 扫描明天日历，找出所有含 `Class` 关键词的事件，为每节课在 `{vault}/上课记录/备课内容/` 生成带上下文的备课笔记骨架（已自动填入学生档案摘要、最近一次课后反馈、上次课内容回顾），并发送 macOS 通知提醒补全。
+**自动部分（launchd 每天 10:00）**：`preclass_scan.py` 用 EventKit 扫描明天日历，找出所有含 `Class` 关键词的事件，为每节课在 `{vault}/上课记录/备课内容/` 生成带上下文的备课笔记骨架（已自动填入学生档案摘要、最近一次课后反馈、上次课内容回顾），并发送 macOS 通知提醒补全。
 
 **AI 补全部分**：用户说「备课」「补全备课」「生成备课内容」时：
 
@@ -46,13 +46,15 @@ setup.sh 会自动完成：依赖检查（brew/ffmpeg 缺则自动装/python3/sw
    - 补全「本次课教学目标」「教学流程与时间分配」「关键题目/演示」「预判学生卡点」等章节
 4. 直接编辑该笔记文件（保持 front matter 与已填上下文不动）。
 
+这里的“补全”必须由当前装了该 Skill 的 AI 自己完成。不要调用 Groq 或其他本地脚本模型去写备课正文。
+
 ## 3. 课中：自动录音（全自动，无需 AI 参与）
 
 launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 
 - **覆盖平台**：Zoom（zoom.us）、腾讯会议（wemeetapp/xmeet）、钉钉、飞书、Google Meet（Chrome/Safari 打开 meet.google.com 标签页）
 - **检测到开课**：自动用 ffmpeg 录制 BlackHole（会议双方声音）+ 麦克风（双保险），存入 `{recordings_dir}/sessions/{YYYY-MM-DD_HHMM}/audio.wav`
-- **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → 转写成功后自动删除对应的 `audio.wav`（写入 `audio_deleted.txt` 删除记录）→ **检查日历是否有对应课程日程** → 有日程：归档文字稿到 Vault + 自动生成课后反馈草稿；无日程（零散会议）：保留本地文字稿，跳过反馈生成 → macOS 通知结果
+- **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → 转写成功后自动删除对应的 `audio.wav`（写入 `audio_deleted.txt` 删除记录）→ **检查日历是否有对应课程日程** → 有日程：归档文字稿到 Vault + 自动准备课后反馈草稿素材；无日程（零散会议）：保留本地文字稿，跳过反馈草稿 → macOS 通知结果
 
 用户无需任何手动操作。若用户说「开始上课/手动录音」，可直接运行 `bash {skill_dir}/scripts/meeting_watcher.sh once` 强制走一轮录音+转写。
 
@@ -61,22 +63,28 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 散会后 watcher 自动完成以下步骤：
 
 1. **归档文字稿与清理音频**：转写成功后，若日历有对应课程日程，将 `transcript.txt` 加 front matter（日期/学生/体系/时长/文字稿来源/原始音频路径/音频保留策略）归档到 `{vault}/上课记录/课堂文字稿/{YYYY-MM-DD} {体系} Class-{学生}.md`；零散会议（无日历日程）不归档到 Vault，但保留本地 `transcript.txt`。确认文字稿非空并完成必要元数据读取后，立即自动删除该 session 的 `audio.wav`，避免长期堆积 400MB 级录音文件
-2. **自动生成反馈草稿**（仅当日历有对应日程时）：`postclass_generate.sh` 读取转写稿 + 学生档案 + 上次反馈，调用 Groq（llama-3.3-70b-versatile，温度 0.4）生成反馈草稿，写入 `{vault}/上课记录/课后反馈/{YYYY-MM-DD}-{学生}-feedback.md`。写作规范来自本 skill 内置的 `docs/feedback-spec.md`（四段式结构、问题台账连续性、反幻觉约束），学生名会做清洗并与档案模糊匹配（防日历标题污染）
+2. **自动准备反馈草稿素材**（仅当日历有对应日程时）：`postclass_generate.sh` 读取转写稿 + 学生档案 + 上次反馈，生成一个待 AI 填写的反馈草稿文件，写入 `{vault}/上课记录/课后反馈/{YYYY-MM-DD}-{学生}-feedback.md`。该草稿只负责把来源材料和固定结构铺好，不负责生成正式反馈正文。学生名会做清洗并与档案模糊匹配（防日历标题污染）
 
 **通知逻辑**：
-- 有日历日程：「转写完成，文字稿已归档，课后反馈已生成 ✅」
+- 有日历日程：「转写完成，文字稿已归档，反馈草稿已准备好 ✅」
 - 零散会议：「转写完成，文字稿已保存在本地（零散会议，跳过反馈）」
 
-**AI 精修部分**（可选）：用户说「精修反馈」「更新档案」时，AI 读取自动生成的反馈草稿和课堂文字稿，按本 skill 内置规范 `docs/feedback-spec.md`（原 parent-lesson-feedback skill，已融合）精修，并按规范的台账更新规则同步 `{vault}/上课记录/学生档案/{学生}.md`。
+**AI 生成部分**：用户说「生成反馈」「精修反馈」「更新档案」时，AI 读取草稿、课堂文字稿与学生档案，按本 skill 内置规范 `docs/feedback-spec.md` 生成正式反馈，并按规范的台账更新规则同步 `{vault}/上课记录/学生档案/{学生}.md`。
 
 ## 4.1 课后反馈写作规范（内置）
 
-完整的课后反馈写作规范在 `docs/feedback-spec.md`，原为独立的 parent-lesson-feedback skill，现已融合为本 pipeline 的一部分。任何生成/精修课后反馈的场景（自动脚本、AI 手动精修、用户直接要求写反馈）都必须遵循该文档：
+完整的课后反馈写作规范在 `docs/feedback-spec.md`，原为独立的 parent-lesson-feedback skill，现已融合为本 pipeline 的一部分。任何由 AI 生成/精修课后反馈的场景（AI 手动生成、用户直接要求写反馈）都必须遵循该文档：
 
 - 四段式结构：「1. 本节课内容」「2. 本节课进步」「3. 当前待解决问题」「4. 下一步计划」
 - 证据优先：一切判断必须有文字稿中的可观察证据，信息不足时先向用户提问而不是编造
 - 问题台账连续性：与学生档案「主要问题」保持用词一致，带（本节课新增）/（历史问题）括号标签，老问题不许凭空消失
 - 篇幅 400-600 字，面向不懂物理的家长，第一人称「我」
+- 文风要具体、定制化：优先直接点名学生（如“Eden 这次……”或“Julian 已经……”），避免整篇只写“学生”“孩子”这种泛称
+- 如果本节课的文字稿足够具体，反馈里要落到这位学生实际做过的动作、说过的话、卡住的点和修正后的变化，避免模板化概括
+- 「1. 本节课内容」必须先给整体框架，再给 1–3 个主要模块；不要把整节课缩成某一道题的单题讲解
+- 「2. 本节课进步」不要使用 `1. 2. 3. 4.` 这类编号列表；优先用“模块名：一句简述”的要点式写法，或模块标题配简短项目符号
+- 「4. 下一步计划」直接写具体动作，不要先写“过去的问题”“下节课安排”这类引导语
+- 反馈正文不要使用加粗、下划线等强调格式；标题之外尽量保持纯文本风格
 
 台账即学生档案：`{vault}/上课记录/学生档案/{学生}.md`，反馈定稿后按其「主要问题」的更新规则同步。
 
@@ -90,3 +98,4 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 | 转写失败 | 检查 `GROQ_API_KEY`（`~/.zshrc`），看 `{recordings_dir}/logs/watcher.log` |
 | 转写报 Forbidden | 国内网络被 Groq 区域封锁；脚本会自动读取 macOS 系统代理（如 Clash），确保代理软件开启且系统代理已启用 |
 | 定时任务没跑 | `launchctl list \| grep physicsclass` 确认任务在；plist 在 `~/Library/LaunchAgents/` |
+| 明明 UI 里有 Google 日历事件，但脚本没扫到 | 旧版 AppleScript 读取不稳定；现已改为 EventKit。若仍异常，先打开系统“日历”权限，确认 Codex/终端对“日历”有访问权 |

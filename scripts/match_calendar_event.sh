@@ -15,17 +15,56 @@ TIMEOUT_SECONDS="${CALENDAR_MATCH_TIMEOUT_SECONDS:-8}"
 EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/physicsclass-events.XXXXXX")"
 trap 'rm -f "$EVENTS_FILE"' EXIT
 
-osascript - "$KEYWORD" >"$EVENTS_FILE" 2>/dev/null <<'APPLESCRIPT' &
+SESSION_ARG="${1:-}"
+REF_Y=""
+REF_M=""
+REF_D=""
+REF_H=""
+REF_MIN=""
+REF_S=""
+
+if [ -n "$SESSION_ARG" ] && [ -d "$SESSION_ARG" ]; then
+  BASE="$(basename "$SESSION_ARG")"
+  if printf '%s' "$BASE" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$'; then
+    REF_Y="${BASE:0:4}"
+    REF_M="${BASE:5:2}"
+    REF_D="${BASE:8:2}"
+    REF_H="${BASE:11:2}"
+    REF_MIN="${BASE:13:2}"
+    REF_S="${BASE:15:2}"
+  fi
+fi
+
+if [ -z "$REF_Y" ]; then
+  REF_Y="$(date '+%Y')"
+  REF_M="$(date '+%m')"
+  REF_D="$(date '+%d')"
+  REF_H="$(date '+%H')"
+  REF_MIN="$(date '+%M')"
+  REF_S="$(date '+%S')"
+fi
+
+osascript - "$KEYWORD" "$REF_Y" "$REF_M" "$REF_D" "$REF_H" "$REF_MIN" "$REF_S" >"$EVENTS_FILE" 2>/dev/null <<'APPLESCRIPT' &
 on run argv
 set keyword to item 1 of argv
-set nowDate to current date
-set windowStart to nowDate - 2 * days
-set windowEnd to nowDate + 2 * days
+set refYear to (item 2 of argv) as integer
+set refMonth to (item 3 of argv) as integer
+set refDay to (item 4 of argv) as integer
+set refHour to (item 5 of argv) as integer
+set refMinute to (item 6 of argv) as integer
+set refSecond to (item 7 of argv) as integer
+set refDate to current date
+set year of refDate to refYear
+set month of refDate to refMonth
+set day of refDate to refDay
+set time of refDate to (refHour * hours + refMinute * minutes + refSecond * seconds)
+set windowStart to refDate - 2 * days
+set windowEnd to refDate + 2 * days
 set out to ""
 tell application "Calendar"
   repeat with cal in calendars
     repeat with ev in (every event of cal whose start date > windowStart and start date < windowEnd and summary contains keyword)
-      set delta to (start date of ev) - nowDate
+      set delta to (start date of ev) - refDate
       if delta < 0 then set delta to -delta
       set out to out & (delta as integer) & tab & (summary of ev as text) & linefeed
     end repeat

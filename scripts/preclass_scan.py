@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""preclass_scan.py — 扫描明天苹果日历中的课程事件，自动生成完整备课笔记。
+"""preclass_scan.py — 扫描明天日历中的课程事件，自动生成备课笔记草稿。
 
 日历事件格式：`{体系} Class-{学生名}`（含关键词 Class，默认大小写不敏感匹配）。
 为每节课在 {vault}/上课记录/备课内容/ 下生成备课笔记，自动嵌入：
   - 学生档案摘要（学生档案/{学生}.md 的基本信息/当前进度/主要问题）
   - 最近一次课后反馈（课后反馈/ 下该学生最新一篇）
   - 上一次备课/课次线索
-  - 调用 Groq API 自动生成教学目标、流程、关键题目、预判卡点。
+  - 为 AI 生成部分预留固定结构和提示语。
 已存在同名笔记则跳过（幂等，可重复运行）。完成后发 macOS 通知。
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -21,23 +20,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CONFIG = SKILL_DIR / "config.json"
-SYLLABI_DIR = Path.home() / "physics-class-pipeline-data" / "syllabi"
-PLACEHOLDER = "> AI 生成中..."
-
-APPLESCRIPT = """
-set t to (current date) + 1 * days
-set time of t to 0
-set tEnd to t + 1 * days
-tell application "Calendar"
-    set out to ""
-    repeat with c in calendars
-        repeat with e in (events of c whose start date >= t and start date < tEnd)
-            set out to out & (summary of e) & tab & ((start date of e) as string) & tab & (description of e) & linefeed
-        end repeat
-    end repeat
-    return out
-end tell
-"""
+PLACEHOLDER = "> 待装有该 Skill 的 AI 根据现有材料补全"
 
 
 def load_config() -> dict:
@@ -69,67 +52,13 @@ def latest_file_for_student(folder: Path, student: str) -> Path | None:
     hits = [p for p in sorted(folder.glob("*.md")) if student.lower() in p.name.lower()]
     return hits[-1] if hits else None
 
-
-
-def find_syllabus(system: str) -> str:
-    """在 syllabi 目录中查找匹配体系的 syllabus 文本。"""
-    if not SYLLABI_DIR.exists():
-        return ""
-    # 尝试匹配文件名中包含体系关键词的 .txt 文件
-    system_lower = system.lower().replace(" ", "")
-    for f in sorted(SYLLABI_DIR.glob("*.txt")):
-        fname_lower = f.name.lower().replace("_", "").replace("-", "").replace(" ", "")
-        if system_lower in fname_lower or "cie" in system_lower and "cie" in fname_lower:
-            return f.read_text(encoding="utf-8", errors="replace")
-    return ""
-
-
-def extract_relevant_syllabus(syllabus_text: str, student_progress: str, max_chars: int = 4000) -> str:
-    """从 syllabus 全文中提取与学生当前进度相关的章节。"""
-    if not syllabus_text:
-        return ""
-    
-    # 从学生档案中提取当前章节编号（如 "1.5"）
-    current_section = ""
-    m = re.search(r'(\d+\.\d+)', student_progress)
-    if m:
-        current_section = m.group(1)
-    
-    if not current_section:
-        return syllabus_text[:max_chars]
-    
-    # 提取当前章节及后续 2-3 个章节的内容
-    lines = syllabus_text.split('\n')
-    result = []
-    capturing = False
-    section_count = 0
-    current_num = tuple(int(x) for x in current_section.split('.'))
-    
-    for line in lines:
-        # 检测章节标题（如 "1.5 Forces" 或 "1.6 Momentum"）
-        m = re.match(r'^(\d+)\.(\d+)\s+(.+)', line.strip())
-        if m:
-            sec_num = (int(m.group(1)), int(m.group(2)))
-            if sec_num >= current_num:
-                if not capturing:
-                    capturing = True
-                section_count += 1
-                if section_count > 4:  # 最多取当前+后续3个章节
-                    break
-        if capturing:
-            result.append(line)
-    
-    text = '\n'.join(result)
-    return text[:max_chars] if text else syllabus_text[:max_chars]
-
-
 def build_skeleton(when: str, system: str, student: str, notes: str,
                    profile_md: str, last_feedback_md: str, last_prep_md: str) -> str:
     return f"""---
 date: {when}
 system: {system}
 student: {student}
-status: AI生成
+status: 待AI补全
 ---
 
 # {when} {system} Class-{student} · 备课
@@ -146,6 +75,11 @@ status: AI生成
 ## 上一次备课参考
 {last_prep_md.strip() or '（无历史记录）'}
 
+## AI 补全要求
+- 结合这位学生现有档案、最近一次反馈、以及该体系 syllabus，补全本次课安排
+- 不要脱离当前进度重写整套计划，要紧贴明天这节课真正要上的内容
+- 先给整体框架，再细化重点题型、时间分配和预判卡点
+
 ## 本次课教学目标
 {PLACEHOLDER}
 
@@ -160,135 +94,23 @@ status: AI生成
 """
 
 
-def detect_proxy() -> str | None:
-    """读取 macOS 系统代理（Clash Verge 等）。"""
-    for var in ("https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY", "all_proxy"):
-        if os.environ.get(var):
-            return os.environ[var]
-    try:
-        out = subprocess.run(["scutil", "--proxy"], capture_output=True, text=True, timeout=5).stdout
-        enabled = "HTTPSEnable : 1" in out or "HTTPEnable : 1" in out
-        host = port = None
-        for line in out.splitlines():
-            key, _, val = line.partition(":")
-            key, val = key.strip(), val.strip()
-            if key == "HTTPSProxy" or (host is None and key == "HTTPProxy"):
-                host = val
-            if key == "HTTPSPort" or (port is None and key == "HTTPPort"):
-                port = val
-        if enabled and host and port:
-            return f"http://{host}:{port}"
-    except Exception:
-        pass
-    return None
-
-
-def groq_generate(prompt: str, api_key: str) -> str:
-    """调用 Groq API 生成文本（使用 curl 走代理）。"""
-    proxy = detect_proxy()
-    payload = json.dumps({
-        "model": "llama-3.3-70b-versatile",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.4,
-        "max_tokens": 3000,
-    })
-    cmd = ["curl", "-s", "--connect-timeout", "30", "-m", "120",
-           "https://api.groq.com/openai/v1/chat/completions",
-           "-H", f"Authorization: Bearer {api_key}",
-           "-H", "Content-Type: application/json",
-           "-d", payload]
-    if proxy:
-        cmd.extend(["-x", proxy])
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=130)
-    if result.returncode != 0:
-        raise RuntimeError(f"curl failed: {result.stderr}")
-    data = json.loads(result.stdout)
-    if "choices" not in data:
-        raise RuntimeError(f"Groq error: {data}")
-    return data["choices"][0]["message"]["content"].strip()
-
-
-def generate_teaching_plan(system: str, student: str, profile_md: str,
-                           last_feedback_md: str, api_key: str) -> dict:
-    """用 Groq 生成备课四段内容。"""
-    # 读取 syllabus
-    syllabus_text = find_syllabus(system)
-    relevant_syllabus = extract_relevant_syllabus(syllabus_text, profile_md)
-    syllabus_section = f"""
-OFFICIAL SYLLABUS (relevant sections for this student's current level):
-{relevant_syllabus}
-""" if relevant_syllabus else "CURRICULUM SYSTEM: " + system + " (use the official syllabus for this system)"
-
-    prompt = f"""You are an experienced physics tutor preparing a lesson plan.
-
-STUDENT PROFILE:
-{profile_md[:3000]}
-
-LAST CLASS FEEDBACK:
-{last_feedback_md[:2000]}
-
-{syllabus_section}
-
-Based on the student's current progress, known issues, and the official syllabus,
-generate the following 4 sections for the NEXT lesson. Be specific and actionable.
-Write in Chinese. Keep it practical — this teacher will use it directly.
-
-Format your response EXACTLY as:
-
-【教学目标】
-(2-3 specific, testable objectives based on where the student left off)
-
-【教学流程与时间分配】
-(Break down a 60-minute lesson into segments with time allocations)
-
-【关键题目与演示】
-(List 3-5 specific problem types or demos to cover, aligned with the issues found)
-
-【预判学生卡点】
-(Predict 1-3 likely stumbling points based on the student's known weaknesses, with brief mitigation strategies)
-
-IMPORTANT:
-- Base everything on the student's ACTUAL progress and issues, not generic content
-- Use the OFFICIAL SYLLABUS above to determine what comes NEXT after the student's current topic
-- Reference specific problems from the profile (e.g., if they struggle with trig, include trig practice)
-- The next lesson should naturally continue from where the last one ended
-- Do NOT repeat content already covered — advance to the next syllabus section
-- Reference specific syllabus section numbers (e.g., "1.6 Momentum") in your plan"""
-
-    try:
-        result = groq_generate(prompt, api_key)
-    except Exception as e:
-        print(f"  Groq 生成失败: {e}")
-        return None
-
-    # 解析四段
-    sections = {}
-    markers = [
-        ("教学目标", "【教学目标】"),
-        ("教学流程与时间分配", "【教学流程与时间分配】"),
-        ("关键题目与演示", "【关键题目与演示】"),
-        ("预判学生卡点", "【预判学生卡点】"),
-    ]
-    for name, marker in markers:
-        idx = result.find(marker)
-        if idx >= 0:
-            start = idx + len(marker)
-            end = len(result)
-            for _, m2 in markers:
-                idx2 = result.find(m2, idx + 1)
-                if idx2 > idx and idx2 < end:
-                    end = idx2
-            sections[name] = result[start:end].strip()
-
-    if len(sections) < 4:
-        return {"raw": result}
-    return sections
-
-
 def notify(msg: str) -> None:
     subprocess.run(["osascript", "-e",
                     f'display notification "{msg}" with title "Physics Class Pipeline"'],
                    capture_output=True)
+
+
+def read_tomorrow_events() -> str:
+    query_script = SKILL_DIR / "scripts" / "query_calendar_events.swift"
+    out = subprocess.run(
+        [str(query_script), "1"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip() or "读取日历失败")
+    return out.stdout
 
 
 def main() -> None:
@@ -302,26 +124,14 @@ def main() -> None:
     for d in (prep_dir, profile_dir, feedback_dir, root / "课堂文字稿"):
         d.mkdir(parents=True, exist_ok=True)
 
-    # 读取 Groq API key
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    if not api_key:
-        try:
-            zshrc = Path.home() / ".zshrc"
-            for line in zshrc.read_text().splitlines():
-                m = re.match(r'^\s*(export\s+)?GROQ_API_KEY=["\']?(.+?)["\']?\s*$', line)
-                if m:
-                    api_key = m.group(2)
-        except Exception:
-            pass
-
-    out = subprocess.run(["osascript", "-e", APPLESCRIPT],
-                         capture_output=True, text=True)
-    if out.returncode != 0:
-        sys.exit(f"读取日历失败：{out.stderr.strip()}")
+    try:
+        events_output = read_tomorrow_events()
+    except Exception as exc:
+        sys.exit(f"读取日历失败：{exc}")
 
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     created = 0
-    for line in out.stdout.splitlines():
+    for line in events_output.splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
@@ -342,23 +152,6 @@ def main() -> None:
 
         skeleton = build_skeleton(tomorrow, system, student, notes,
                                   profile, last_feedback, last_prep)
-
-        # 用 Groq 生成备课内容
-        if api_key and profile.strip():
-            print(f"generating teaching plan for {student}...")
-            plan = generate_teaching_plan(system, student, profile, last_feedback, api_key)
-            if plan:
-                if "raw" in plan:
-                    skeleton = skeleton.replace(PLACEHOLDER, plan["raw"], 1)
-                else:
-                    for section_name in ["教学目标", "教学流程与时间分配", "关键题目与演示", "预判学生卡点"]:
-                        content = plan.get(section_name, "（生成失败）")
-                        skeleton = skeleton.replace(PLACEHOLDER, content, 1)
-                print(f"  plan generated successfully")
-            else:
-                skeleton = skeleton.replace(PLACEHOLDER, "> 生成失败，请手动补全")
-        else:
-            skeleton = skeleton.replace(PLACEHOLDER, "> 未配置 GROQ_API_KEY 或无学生档案，请手动补全")
 
         target.write_text(skeleton, encoding="utf-8")
         created += 1
