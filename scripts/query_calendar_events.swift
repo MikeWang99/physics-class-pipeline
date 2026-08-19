@@ -3,12 +3,28 @@
 import EventKit
 import Foundation
 
-let offset = CommandLine.arguments.count > 1 ? Int(CommandLine.arguments[1]) ?? 1 : 1
 let calendar = Calendar.current
+let argument = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "1"
+let target: Date
 
-guard let target = calendar.date(byAdding: .day, value: offset, to: Date()) else {
-    fputs("failed to compute target date\n", stderr)
-    exit(1)
+if let offset = Int(argument) {
+    guard let computed = calendar.date(byAdding: .day, value: offset, to: Date()) else {
+        fputs("failed to compute target date\n", stderr)
+        exit(1)
+    }
+    target = computed
+} else {
+    let formatter = DateFormatter()
+    formatter.calendar = calendar
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    formatter.dateFormat = "yyyy-MM-dd"
+
+    guard let parsed = formatter.date(from: argument) else {
+        fputs("invalid date argument: expected day offset or yyyy-MM-dd\n", stderr)
+        exit(1)
+    }
+    target = parsed
 }
 
 let start = calendar.startOfDay(for: target)

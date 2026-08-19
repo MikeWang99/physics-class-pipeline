@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # match_calendar_event.sh - find the nearest Calendar event named "{SYSTEM} Class-{STUDENT}".
 #
-# AppleScript returns list values as a comma-joined string, which can smear
-# unrelated reminders into the student name. Build explicit line-delimited
-# output instead, then choose the closest event to "now".
+# Uses the same EventKit-backed query path as preclass_scan.py so prep scanning
+# and post-class matching read from one data source.
 #
 # Output: "SYSTEM|STUDENT" on stdout.
 # Exit 0 if found, 1 if not found.
@@ -11,9 +10,8 @@ set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KEYWORD="${CALENDAR_KEYWORD:-Class}"
-TIMEOUT_SECONDS="${CALENDAR_MATCH_TIMEOUT_SECONDS:-8}"
-EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/physicsclass-events.XXXXXX")"
-trap 'rm -f "$EVENTS_FILE"' EXIT
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+QUERY_SCRIPT="$SCRIPT_DIR/query_calendar_events.swift"
 
 SESSION_ARG="${1:-}"
 REF_Y=""
@@ -44,65 +42,45 @@ if [ -z "$REF_Y" ]; then
   REF_S="$(date '+%S')"
 fi
 
-osascript - "$KEYWORD" "$REF_Y" "$REF_M" "$REF_D" "$REF_H" "$REF_MIN" "$REF_S" >"$EVENTS_FILE" 2>/dev/null <<'APPLESCRIPT' &
-on run argv
-set keyword to item 1 of argv
-set refYear to (item 2 of argv) as integer
-set refMonth to (item 3 of argv) as integer
-set refDay to (item 4 of argv) as integer
-set refHour to (item 5 of argv) as integer
-set refMinute to (item 6 of argv) as integer
-set refSecond to (item 7 of argv) as integer
-set refDate to current date
-set year of refDate to refYear
-set month of refDate to refMonth
-set day of refDate to refDay
-set time of refDate to (refHour * hours + refMinute * minutes + refSecond * seconds)
-set windowStart to refDate - 2 * days
-set windowEnd to refDate + 2 * days
-set out to ""
-tell application "Calendar"
-  repeat with cal in calendars
-    repeat with ev in (every event of cal whose start date > windowStart and start date < windowEnd and summary contains keyword)
-      set delta to (start date of ev) - refDate
-      if delta < 0 then set delta to -delta
-      set out to out & (delta as integer) & tab & (summary of ev as text) & linefeed
-    end repeat
-  end repeat
-end tell
-return out
-end run
-APPLESCRIPT
-OSA_PID=$!
+REF_DATE="${REF_Y}-${REF_M}-${REF_D}"
+REF_ISO="${REF_DATE}T${REF_H}:${REF_MIN}:${REF_S}"
 
-for _ in $(seq 1 "$TIMEOUT_SECONDS"); do
-  if ! kill -0 "$OSA_PID" 2>/dev/null; then
-    break
-  fi
-  sleep 1
-done
-
-if kill -0 "$OSA_PID" 2>/dev/null; then
-  kill "$OSA_PID" 2>/dev/null || true
-  wait "$OSA_PID" 2>/dev/null || true
-  exit 1
-fi
-wait "$OSA_PID" 2>/dev/null || true
-
-EVENTS=$(cat "$EVENTS_FILE")
-
+EVENTS="$("$QUERY_SCRIPT" "$REF_DATE" 2>/dev/null)" || exit 1
 [ -n "$EVENTS" ] || exit 1
 
-while IFS=$'\t' read -r _delta summary; do
-  [ -n "${summary:-}" ] || continue
-  if printf '%s\n' "$summary" | grep -qiE "${KEYWORD}[[:space:]]*[-－—]"; then
-    SYSTEM=$(printf '%s\n' "$summary" | sed -E "s/[[:space:]]*${KEYWORD}[[:space:]]*[-－—].*//I" | xargs)
-    STUDENT=$(printf '%s\n' "$summary" | sed -E "s/.*${KEYWORD}[[:space:]]*[-－—][[:space:]]*//I" | xargs)
-    [ -n "$SYSTEM" ] || SYSTEM="未命名体系"
-    [ -n "$STUDENT" ] || continue
-    printf '%s|%s\n' "$SYSTEM" "$STUDENT"
-    exit 0
-  fi
-done < <(printf '%s\n' "$EVENTS" | sort -n)
+BEST_SYSTEM=""
+BEST_STUDENT=""
+BEST_DELTA=""
 
-exit 1
+while IFS=$'\t' read -r summary start_iso _notes; do
+  [ -n "${summary:-}" ] || continue
+  if ! printf '%s\n' "$summary" | grep -qiE "${KEYWORD}[[:space:]]*[-－—]"; then
+    continue
+  fi
+
+  DELTA=$(python3 - "$REF_ISO" "$start_iso" <<'PY'
+import sys
+from datetime import datetime
+
+ref = datetime.fromisoformat(sys.argv[1]).replace(
+    tzinfo=datetime.now().astimezone().tzinfo
+)
+start = datetime.fromisoformat(sys.argv[2])
+print(int(abs((start - ref).total_seconds())))
+PY
+) || continue
+
+  SYSTEM=$(printf '%s\n' "$summary" | sed -E "s/[[:space:]]*${KEYWORD}[[:space:]]*[-－—].*//I" | xargs)
+  STUDENT=$(printf '%s\n' "$summary" | sed -E "s/.*${KEYWORD}[[:space:]]*[-－—][[:space:]]*//I" | xargs)
+  [ -n "$SYSTEM" ] || SYSTEM="未命名体系"
+  [ -n "$STUDENT" ] || continue
+
+  if [ -z "$BEST_DELTA" ] || [ "$DELTA" -lt "$BEST_DELTA" ]; then
+    BEST_DELTA="$DELTA"
+    BEST_SYSTEM="$SYSTEM"
+    BEST_STUDENT="$STUDENT"
+  fi
+done < <(printf '%s\n' "$EVENTS")
+
+[ -n "$BEST_STUDENT" ] || exit 1
+printf '%s|%s\n' "$BEST_SYSTEM" "$BEST_STUDENT"
