@@ -146,9 +146,7 @@ cat > "$PLIST_SCAN" <<EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.physicsclass.preclass-scan</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/open</string>
-    <string>-gj</string>
-    <string>$APP_SCAN</string>
+    <string>$APP_SCAN/Contents/MacOS/PhysicsClassScanner</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>StartCalendarInterval</key><dict>
