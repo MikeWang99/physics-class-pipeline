@@ -12,21 +12,30 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from datetime import date, timedelta
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CONFIG = SKILL_DIR / "config.json"
 PLACEHOLDER = "> 待装有该 Skill 的 AI 根据现有材料补全"
+LOG_FILE = Path.home() / "physics-class-pipeline-data" / "logs" / "preclass-scan.log"
 
 
 def load_config() -> dict:
     if not CONFIG.exists():
         sys.exit("config.json 不存在，请先运行 setup.sh")
     return json.loads(CONFIG.read_text(encoding="utf-8"))
+
+
+def log(message: str) -> None:
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
 
 
 def parse_event(summary: str, keyword: str):
@@ -95,6 +104,7 @@ status: 待AI补全
 
 
 def notify(msg: str) -> None:
+    log(f"NOTIFY: {msg}")
     subprocess.run(["osascript", "-e",
                     f'display notification "{msg}" with title "Physics Class Pipeline"'],
                    capture_output=True)
@@ -115,6 +125,9 @@ def read_tomorrow_events() -> str:
 
 def main() -> None:
     cfg = load_config()
+    global LOG_FILE
+    LOG_FILE = Path(os.path.expanduser(cfg["recordings_dir"])) / "logs" / "preclass-scan.log"
+    log("preclass scan started")
     vault = Path(os.path.expanduser(cfg["vault_path"]))
     keyword = cfg.get("calendar_keyword", "Class")
     root = vault / "上课记录"
@@ -126,7 +139,9 @@ def main() -> None:
 
     try:
         events_output = read_tomorrow_events()
+        log("calendar query succeeded")
     except Exception as exc:
+        log(f"calendar query failed: {exc}")
         sys.exit(f"读取日历失败：{exc}")
 
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
@@ -143,6 +158,7 @@ def main() -> None:
         system, student = parsed
         target = prep_dir / f"{tomorrow} {system} Class-{student}.md"
         if target.exists():
+            log(f"skip existing prep note: {target.name}")
             print(f"skip (exists): {target.name}")
             continue
 
@@ -155,11 +171,13 @@ def main() -> None:
 
         target.write_text(skeleton, encoding="utf-8")
         created += 1
+        log(f"created prep note: {target}")
         print(f"created: {target}")
 
     if created:
         notify(f"明天有 {created} 节课的备课笔记已自动生成 ✅")
     else:
+        log("no new prep notes created")
         print("明天没有新的课程事件（或笔记已存在）。")
 
 
