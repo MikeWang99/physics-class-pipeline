@@ -15,6 +15,7 @@ VAULT_PATH="$2"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TRANSCRIPT="$SESSION_DIR/transcript.txt"
 [ -f "$TRANSCRIPT" ] || { echo "no transcript: $TRANSCRIPT"; exit 1; }
+RESOLVER="$SCRIPT_DIR/resolve_student_name.py"
 
 # Match student from the watcher-provided calendar event when available. Falling
 # back keeps the script usable when run by hand.
@@ -31,6 +32,9 @@ fi
 # 日历标题可能被污染（含无关文字），只取第一段并去掉首尾空白
 STUDENT_CLEAN=$(printf '%s' "$STUDENT" | cut -d',' -f1 | xargs)
 [ -z "$STUDENT_CLEAN" ] && STUDENT_CLEAN="$STUDENT"
+if [ -x "$RESOLVER" ]; then
+  STUDENT_CLEAN=$(python3 "$RESOLVER" "$VAULT_PATH" "$STUDENT_CLEAN" 2>/dev/null || printf '%s' "$STUDENT_CLEAN")
+fi
 
 # 在 Vault 学生档案里模糊匹配真实学生名（档案是台账，优先）
 PROFILE=""
@@ -67,9 +71,9 @@ PROFILE_TEXT=""
 PREV_FEEDBACK=""
 PREV_FILE=$(ls -t "$VAULT_PATH/上课记录/课后反馈/"*-"$STUDENT"-feedback.md 2>/dev/null | head -1)
 [ -n "$PREV_FILE" ] && PREV_FEEDBACK=$(head -c 2500 "$PREV_FILE")
-FEEDBACK_DIR="$VAULT_PATH/上课记录/课后反馈"
-mkdir -p "$FEEDBACK_DIR"
-OUTFILE="$FEEDBACK_DIR/${DATE}-${STUDENT}-feedback.md"
+MATERIAL_DIR="$VAULT_PATH/上课记录/课后反馈草稿"
+mkdir -p "$MATERIAL_DIR"
+OUTFILE="$MATERIAL_DIR/${DATE}-${STUDENT}-feedback-materials.md"
 
 TRANSCRIPT_ARCHIVE="$VAULT_PATH/上课记录/课堂文字稿/${DATE} ${SYSTEM} Class-${STUDENT}.md"
 TRANSCRIPT_SNIPPET=$( { head -c 6000 "$TRANSCRIPT"; printf '\n…（中段省略）…\n'; tail -c 3000 "$TRANSCRIPT"; } )

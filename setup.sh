@@ -128,8 +128,8 @@ mkdir -p "$DATA_DIR/sessions" "$DATA_DIR/logs"
 # note folders in vault (Obsidian creates on demand, but pre-create for clarity)
 if [ -n "$VAULT" ]; then
   mkdir -p "$VAULT/上课记录/备课内容" "$VAULT/上课记录/课堂文字稿" \
-           "$VAULT/上课记录/课后反馈" "$VAULT/上课记录/学生档案"
-  ok "Vault 笔记分区已就绪：上课记录/{备课内容,课堂文字稿,课后反馈,学生档案}"
+           "$VAULT/上课记录/课后反馈" "$VAULT/上课记录/课后反馈草稿" "$VAULT/上课记录/学生档案"
+  ok "Vault 笔记分区已就绪：上课记录/{备课内容,课堂文字稿,课后反馈,课后反馈草稿,学生档案}"
 fi
 
 # ---------- 6. launchd jobs + permission guidance ----------
@@ -146,7 +146,9 @@ cat > "$PLIST_SCAN" <<EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.physicsclass.preclass-scan</string>
   <key>ProgramArguments</key><array>
-    <string>$APP_SCAN/Contents/MacOS/PhysicsClassScanner</string>
+    <string>/usr/bin/open</string>
+    <string>-gj</string>
+    <string>$APP_SCAN</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>StartCalendarInterval</key><dict>

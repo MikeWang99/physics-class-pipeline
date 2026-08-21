@@ -19,6 +19,7 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG="$SKILL_DIR/config.json"
 INTERVAL=15
 MISS_LIMIT=3   # 3 x 15s without meeting => class over
+RESOLVER="$SCRIPT_DIR/resolve_student_name.py"
 
 cfg() { python3 -c "import json,os;print(json.load(open('$CONFIG')).get('$1','$2'))" 2>/dev/null || echo "$2"; }
 
@@ -227,6 +228,9 @@ transcribe_session() {
     if [ -n "$MATCH" ]; then
       SYS="${MATCH%%|*}"
       STU="${MATCH##*|}"
+      if [ -x "$RESOLVER" ]; then
+        STU="$(python3 "$RESOLVER" "$VAULT_PATH" "$STU" 2>/dev/null || printf '%s' "$STU")"
+      fi
       ARCHIVE_DIR="$VAULT_PATH/上课记录/课堂文字稿"
       mkdir -p "$ARCHIVE_DIR"
       ARCHIVE_FILE="$ARCHIVE_DIR/${DATE:-$(date '+%Y-%m-%d')} ${SYS} Class-${STU}.md"
@@ -253,7 +257,7 @@ transcribe_session() {
     # 只有日历有对应日程时才生成课后反馈
     if [ -n "$MATCH" ]; then
       if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$SYS" "$STU" >> "$LOG" 2>&1; then
-        notify "done" "转写完成，文字稿已归档，反馈草稿已准备好 ✅"
+        notify "done" "转写完成，文字稿已归档，反馈素材已准备好 ✅"
       else
         RC=$?
         if [ "$RC" -eq 2 ]; then
