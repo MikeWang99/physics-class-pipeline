@@ -11,7 +11,9 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KEYWORD="${CALENDAR_KEYWORD:-Class}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-QUERY_SCRIPT="$SCRIPT_DIR/query_calendar_events.swift"
+QUERY_SCRIPT="$SCRIPT_DIR/query_calendar_events.sh"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+CONFIG="$SKILL_DIR/config.json"
 
 SESSION_ARG="${1:-}"
 REF_Y=""
@@ -45,42 +47,121 @@ fi
 REF_DATE="${REF_Y}-${REF_M}-${REF_D}"
 REF_ISO="${REF_DATE}T${REF_H}:${REF_MIN}:${REF_S}"
 
-EVENTS="$("$QUERY_SCRIPT" "$REF_DATE" 2>/dev/null)" || exit 1
-[ -n "$EVENTS" ] || exit 1
+cfg() { python3 -c "import json;print(json.load(open('$CONFIG')).get('$1','$2'))" 2>/dev/null || echo "$2"; }
+VAULT_PATH="$(cfg vault_path "$HOME/Obsidian Vault")"
+RESOLVER="$SCRIPT_DIR/resolve_student_name.py"
 
-BEST_SYSTEM=""
-BEST_STUDENT=""
-BEST_DELTA=""
-
-while IFS=$'\t' read -r summary start_iso _notes; do
-  [ -n "${summary:-}" ] || continue
-  if ! printf '%s\n' "$summary" | grep -qiE "${KEYWORD}[[:space:]]*[-－—]"; then
-    continue
-  fi
-
-  DELTA=$(python3 - "$REF_ISO" "$start_iso" <<'PY'
+pick_best_event() {
+  python3 - "$KEYWORD" "$REF_ISO" <<'PY'
+import re
 import sys
 from datetime import datetime
 
-ref = datetime.fromisoformat(sys.argv[1]).replace(
+keyword = sys.argv[1]
+ref = datetime.fromisoformat(sys.argv[2]).replace(
     tzinfo=datetime.now().astimezone().tzinfo
 )
-start = datetime.fromisoformat(sys.argv[2])
-print(int(abs((start - ref).total_seconds())))
+pattern = re.compile(rf"^(.*?)\s*{re.escape(keyword)}\s*[-－—]\s*(.+)$", re.IGNORECASE)
+best = None
+
+for raw in sys.stdin.read().splitlines():
+    if not raw.strip():
+        continue
+    parts = raw.split("\t")
+    if len(parts) < 2:
+        continue
+    summary, start_iso = parts[0].strip(), parts[1].strip()
+    match = pattern.search(summary)
+    if not match:
+        continue
+    try:
+        start = datetime.fromisoformat(start_iso)
+    except ValueError:
+        continue
+    delta = abs(int((start - ref).total_seconds()))
+    system = match.group(1).strip() or "未命名体系"
+    student = match.group(2).strip()
+    if not student:
+        continue
+    if best is None or delta < best[0]:
+        best = (delta, system, student)
+
+if best is None:
+    sys.exit(1)
+
+print(f"{best[1]}|{best[2]}")
 PY
-) || continue
+}
 
-  SYSTEM=$(printf '%s\n' "$summary" | sed -E "s/[[:space:]]*${KEYWORD}[[:space:]]*[-－—].*//I" | xargs)
-  STUDENT=$(printf '%s\n' "$summary" | sed -E "s/.*${KEYWORD}[[:space:]]*[-－—][[:space:]]*//I" | xargs)
-  [ -n "$SYSTEM" ] || SYSTEM="未命名体系"
-  [ -n "$STUDENT" ] || continue
+pick_from_prep_notes() {
+  python3 - "$VAULT_PATH" "$REF_DATE" "$REF_ISO" <<'PY'
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
 
-  if [ -z "$BEST_DELTA" ] || [ "$DELTA" -lt "$BEST_DELTA" ]; then
-    BEST_DELTA="$DELTA"
-    BEST_SYSTEM="$SYSTEM"
-    BEST_STUDENT="$STUDENT"
-  fi
-done < <(printf '%s\n' "$EVENTS")
+vault = Path(sys.argv[1]).expanduser()
+ref_date = sys.argv[2]
+ref = datetime.fromisoformat(sys.argv[3]).replace(
+    tzinfo=datetime.now().astimezone().tzinfo
+)
+prep_dir = vault / "上课记录" / "备课内容"
+best = None
 
-[ -n "$BEST_STUDENT" ] || exit 1
+for path in sorted(prep_dir.glob(f"{ref_date} *.md")):
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    frontmatter = {}
+    if lines[:1] == ["---"]:
+        for line in lines[1:]:
+            if line == "---":
+                break
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            frontmatter[key.strip()] = value.strip()
+    event_start = frontmatter.get("event_start")
+    system = frontmatter.get("system")
+    student = frontmatter.get("student")
+    if not event_start or not student:
+        match = re.match(rf"^{re.escape(ref_date)}\s+(.*?)\s+Class-(.+)\.md$", path.name)
+        if match:
+            system = system or match.group(1).strip()
+            student = student or match.group(2).strip()
+    if not event_start or not student:
+        continue
+    try:
+        start = datetime.fromisoformat(event_start)
+    except ValueError:
+        continue
+    delta = abs(int((start - ref).total_seconds()))
+    system = system or "未命名体系"
+    if best is None or delta < best[0]:
+        best = (delta, system, student)
+
+if best is None:
+    sys.exit(1)
+
+print(f"{best[1]}|{best[2]}")
+PY
+}
+
+MATCH=""
+EVENTS="$("$QUERY_SCRIPT" "$REF_DATE" 2>/dev/null)" || EVENTS=""
+if [ -n "$EVENTS" ]; then
+  MATCH="$(printf '%s\n' "$EVENTS" | pick_best_event 2>/dev/null)" || MATCH=""
+fi
+
+if [ -z "$MATCH" ]; then
+  MATCH="$(pick_from_prep_notes 2>/dev/null)" || MATCH=""
+fi
+
+[ -n "$MATCH" ] || exit 1
+BEST_SYSTEM="${MATCH%%|*}"
+BEST_STUDENT="${MATCH##*|}"
+
+if [ -x "$RESOLVER" ]; then
+  BEST_STUDENT="$(python3 "$RESOLVER" "$VAULT_PATH" "$BEST_STUDENT" 2>/dev/null || printf '%s' "$BEST_STUDENT")"
+fi
+
 printf '%s|%s\n' "$BEST_SYSTEM" "$BEST_STUDENT"

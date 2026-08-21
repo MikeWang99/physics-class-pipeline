@@ -52,4 +52,4 @@ scripts/
   transcribe_audio.py     # Groq Whisper 转写（自动分片，无 25MB 限制）
 ```
 
-录音与文字稿存放在 `~/physics-class-pipeline-data/`，日志在其 `logs/` 子目录。每节课转写成功后会删除对应 session 的 `audio.wav`，并在同目录写入 `audio_deleted.txt` 记录删除时间、文件路径和释放字节数；`transcript.txt` / `transcript.json` 会保留。Groq Whisper 只负责这一步的语音转写，不负责备课内容或课后反馈正文。
+录音与文字稿存放在 `~/physics-class-pipeline-data/`，日志在其 `logs/` 子目录。每节课转写成功后会删除对应 session 的 `audio.wav`，并在同目录写入 `audio_deleted.txt` 记录删除时间、文件路径和释放字节数；`transcript.txt` / `transcript.json` 会保留。Groq Whisper 只负责这一步的语音转写，不负责备课内容或课后反馈正文。课后脚本只会把 AI 所需素材写入 Vault 的 `上课记录/课后反馈草稿/`，正式家长反馈仍由装了该 skill 的 AI 写入 `上课记录/课后反馈/`。
