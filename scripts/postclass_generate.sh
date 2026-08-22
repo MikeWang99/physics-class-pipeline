@@ -63,7 +63,12 @@ if [ -d "$PROFILE_DIR" ]; then
 fi
 STUDENT="$STUDENT_CLEAN"
 
-DATE=$(date '+%Y-%m-%d')
+session_base="$(basename "$SESSION_DIR")"
+if printf '%s' "$session_base" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$'; then
+  DATE="${session_base%%_*}"
+else
+  DATE="$(date '+%Y-%m-%d')"
+fi
 
 # 读取学生档案与最近一次反馈（保持问题跟踪连续性）
 PROFILE_TEXT=""

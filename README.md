@@ -6,7 +6,7 @@
 |---|---|---|
 | 课前 | 扫描明天日历，为每节课生成备课笔记骨架（含学生档案摘要、上次反馈），由装了 Skill 的 AI 补全教学目标与流程 | launchd 每日 10:00 自动 + 说「备课」 |
 | 课中 | 检测到会议（Zoom/腾讯会议/钉钉/飞书/Google Meet）自动录音，散会后 Groq Whisper 转写全员文字稿；文字稿生成成功后自动删除原始 audio.wav | 常驻后台，全自动 |
-| 课后 | 自动归档文字稿并准备反馈草稿素材；正式家长反馈、学生档案更新、作业建议由装了 Skill 的 AI 完成 | 说「下课」 |
+| 课后 | 自动归档文字稿；若匹配到课程再准备反馈草稿素材。正式家长反馈、学生档案更新、作业建议由装了 Skill 的 AI 完成 | 说「下课」 |
 
 所有产出写入 Obsidian Vault 的「上课记录」分区：`备课内容 / 课堂文字稿 / 课后反馈 / 学生档案`。
 
@@ -64,7 +64,7 @@ scripts/
   transcribe_audio.py     # Groq Whisper 转写（自动分片，无 25MB 限制）
 ```
 
-录音与文字稿存放在 `~/physics-class-pipeline-data/`，日志在其 `logs/` 子目录。每节课转写成功后会删除对应 session 的 `audio.wav`，并在同目录写入 `audio_deleted.txt` 记录删除时间、文件路径和释放字节数；`transcript.txt` / `transcript.json` 会保留。Groq Whisper 只负责这一步的语音转写，不负责备课内容或课后反馈正文。课后脚本只会把 AI 所需素材写入 Vault 的 `上课记录/课后反馈草稿/`，正式家长反馈仍由装了该 skill 的 AI 写入 `上课记录/课后反馈/`。
+录音与文字稿存放在 `~/physics-class-pipeline-data/`，日志在其 `logs/` 子目录。每节课转写成功后会删除对应 session 的 `audio.wav`，并在同目录写入 `audio_deleted.txt` 记录删除时间、文件路径和释放字节数；`transcript.txt` / `transcript.json` 会保留。Groq Whisper 只负责这一步的语音转写，不负责备课内容或课后反馈正文。文字稿现在会一律归档到 Vault 的 `上课记录/课堂文字稿/`；只有匹配到课程时，课后脚本才会把 AI 所需素材写入 `上课记录/课后反馈草稿/`。正式家长反馈与学生档案更新仍由装了该 skill 的 AI 完成。
 
 ## 维护建议
 

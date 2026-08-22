@@ -135,6 +135,57 @@ notify_throttled() {
   notify "$1" "$2"
 }
 
+session_date() {
+  local dir="$1"
+  local base
+  base="$(basename "$dir")"
+  if printf '%s' "$base" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$'; then
+    printf '%s\n' "${base%%_*}"
+  else
+    date '+%Y-%m-%d'
+  fi
+}
+
+archive_transcript() {
+  local dir="$1"
+  local system="$2"
+  local student="$3"
+  local matched="$4"
+  local session_day duration archive_dir archive_file fallback_student
+
+  session_day="$(session_date "$dir")"
+  archive_dir="$VAULT_PATH/上课记录/课堂文字稿"
+  mkdir -p "$archive_dir"
+
+  if [ "$matched" = "yes" ]; then
+    archive_file="$archive_dir/${session_day} ${system} Class-${student}.md"
+  else
+    fallback_student="Session-$(basename "$dir")"
+    archive_file="$archive_dir/${session_day} 未匹配 Class-${fallback_student}.md"
+    student="$fallback_student"
+    system="未匹配"
+  fi
+
+  duration=$(python3 -c "import subprocess; print(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','$dir/audio.wav'],text=True).strip())" 2>/dev/null || echo "?")
+  {
+    echo "---"
+    echo "date: $session_day"
+    echo "student: $student"
+    echo "system: $system"
+    echo "duration: ${duration}s"
+    echo "calendar_matched: $matched"
+    echo "transcript_source: $dir/transcript.txt"
+    echo "audio_source_original: $dir/audio.wav"
+    echo "audio_retention_policy: delete_after_transcript"
+    [ -f "$dir/platform.txt" ] && echo "meeting_platform: $(cat "$dir/platform.txt")"
+    echo "---"
+    echo
+    cat "$dir/transcript.txt"
+  } > "$archive_file"
+
+  printf '%s\n' "$archive_file"
+}
+
 delete_audio_after_transcript() {
   local dir="$1"
   local audio="$dir/audio.wav"
@@ -211,6 +262,7 @@ stop_recording() {
 
 transcribe_session() {
   local dir="$1"
+  local match="" sys="" stu="" archive_file="" matched="no"
   [ -f "$dir/audio.wav" ] || { log "no audio.wav in $dir"; return; }
   # skip if already transcribed or previously failed (prevent retry storm)
   [ -f "$dir/transcript.txt" ] && { log "already transcribed: $dir"; delete_audio_after_transcript "$dir" || true; return; }
@@ -224,50 +276,32 @@ transcribe_session() {
     export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
   fi
   if python3 "$SCRIPT_DIR/transcribe_audio.py" "$dir/audio.wav" "$dir" >> "$LOG" 2>&1; then
-    MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" "$dir" 2>/dev/null) || MATCH=""
-    if [ -n "$MATCH" ]; then
-      SYS="${MATCH%%|*}"
-      STU="${MATCH##*|}"
+    match=$("$SCRIPT_DIR/match_calendar_event.sh" "$dir" 2>/dev/null) || match=""
+    if [ -n "$match" ]; then
+      matched="yes"
+      sys="${match%%|*}"
+      stu="${match##*|}"
       if [ -x "$RESOLVER" ]; then
-        STU="$(python3 "$RESOLVER" "$VAULT_PATH" "$STU" 2>/dev/null || printf '%s' "$STU")"
+        stu="$(python3 "$RESOLVER" "$VAULT_PATH" "$stu" 2>/dev/null || printf '%s' "$stu")"
       fi
-      ARCHIVE_DIR="$VAULT_PATH/上课记录/课堂文字稿"
-      mkdir -p "$ARCHIVE_DIR"
-      ARCHIVE_FILE="$ARCHIVE_DIR/${DATE:-$(date '+%Y-%m-%d')} ${SYS} Class-${STU}.md"
-      # 加 front matter
-      DUR=$(python3 -c "import subprocess; print(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','$dir/audio.wav'],text=True).strip())" 2>/dev/null || echo "?")
-      {
-        echo "---"
-        echo "date: $(date '+%Y-%m-%d')"
-        echo "student: $STU"
-        echo "system: $SYS"
-        echo "duration: ${DUR}s"
-        echo "transcript_source: $dir/transcript.txt"
-        echo "audio_source_original: $dir/audio.wav"
-        echo "audio_retention_policy: delete_after_transcript"
-        echo "---"
-        echo
-        cat "$dir/transcript.txt"
-      } > "$ARCHIVE_FILE"
-      log "archived transcript to $ARCHIVE_FILE"
-    else
-      log "no calendar match, transcript not archived to vault"
     fi
+    archive_file="$(archive_transcript "$dir" "$sys" "$stu" "$matched")"
+    log "archived transcript to $archive_file"
     delete_audio_after_transcript "$dir" || true
-    # 只有日历有对应日程时才生成课后反馈
-    if [ -n "$MATCH" ]; then
-      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$SYS" "$STU" >> "$LOG" 2>&1; then
-        notify "done" "转写完成，文字稿已归档，反馈素材已准备好 ✅"
+    # 只有日历有对应日程时才准备反馈草稿素材；正式反馈/学生档案仍由 AI 完成
+    if [ "$matched" = "yes" ]; then
+      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$sys" "$stu" >> "$LOG" 2>&1; then
+        notify "done" "转写完成，文字稿已归档，反馈素材已准备好（正式反馈/档案更新待 AI 完成）✅"
       else
         RC=$?
         if [ "$RC" -eq 2 ]; then
-          notify "done" "转写完成，文字稿已归档（无日历日程，跳过反馈）"
+          notify "done" "转写完成，文字稿已归档（未匹配到课程，跳过反馈素材/档案更新）"
         else
           notify "done" "转写完成 ✅（反馈草稿准备失败，查看日志）"
         fi
       fi
     else
-      notify "done" "转写完成，文字稿已保存在本地（零散会议，跳过反馈）"
+      notify "done" "转写完成，文字稿已归档（未匹配到课程，跳过反馈素材/档案更新）"
     fi
   else
     touch "$dir/.transcribe_failed"
