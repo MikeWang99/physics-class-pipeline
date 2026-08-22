@@ -10,6 +10,15 @@
 
 所有产出写入 Obsidian Vault 的「上课记录」分区：`备课内容 / 课堂文字稿 / 课后反馈 / 学生档案`。
 
+## 这套仓库里什么最重要
+
+- `SKILL.md`：给 AI 用的主说明书，定义整条课前/课中/课后流水线
+- `docs/feedback-spec.md`：课后反馈写作规范
+- `scripts/`：录音、日历匹配、课前扫描、转写、反馈素材准备等实际执行脚本
+- `setup.sh`：新电脑一键安装入口
+
+本地运行配置放在 `config.json`，故意不进 Git；仓库里的 `config.example.json` 只是模板。
+
 ## 安装（新电脑）
 
 ```bash
@@ -56,3 +65,10 @@ scripts/
 ```
 
 录音与文字稿存放在 `~/physics-class-pipeline-data/`，日志在其 `logs/` 子目录。每节课转写成功后会删除对应 session 的 `audio.wav`，并在同目录写入 `audio_deleted.txt` 记录删除时间、文件路径和释放字节数；`transcript.txt` / `transcript.json` 会保留。Groq Whisper 只负责这一步的语音转写，不负责备课内容或课后反馈正文。课后脚本只会把 AI 所需素材写入 Vault 的 `上课记录/课后反馈草稿/`，正式家长反馈仍由装了该 skill 的 AI 写入 `上课记录/课后反馈/`。
+
+## 维护建议
+
+- 改工作流或提示词时，优先更新 `SKILL.md` 与 `docs/feedback-spec.md`
+- 改自动化行为时，优先更新 `scripts/`
+- 换电脑时先复制仓库，再运行 `bash setup.sh`
+- 只想迁移配置时，对照 `config.example.json`，不要直接提交自己的 `config.json`
