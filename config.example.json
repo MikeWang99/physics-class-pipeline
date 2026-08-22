@@ -1,0 +1,7 @@
+{
+  "vault_path": "/absolute/path/to/your/Obsidian Vault",
+  "recordings_dir": "/Users/yourname/physics-class-pipeline-data",
+  "calendar_keyword": "Class",
+  "scan_hour": 10,
+  "scan_minute": 0
+}

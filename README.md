@@ -18,7 +18,9 @@ cd physics-class-pipeline
 bash setup.sh
 ```
 
-`setup.sh` 一键完成：依赖检查（缺 ffmpeg 自动 brew 安装）→ BlackHole 虚拟声卡 → 探测 Obsidian Vault → 写 config.json → 创建后台应用并注册 launchd 任务 → 弹出系统麦克风授权窗口 → 链接到 `~/.qoder/skills` 与 `~/.codex/skills`。重复运行安全。
+`setup.sh` 一键完成：依赖检查（缺 ffmpeg 自动 brew 安装）→ BlackHole 虚拟声卡 → 探测 Obsidian Vault → 写 `config.json` → 创建后台应用并注册 launchd 任务 → 弹出系统麦克风授权窗口 → 链接到 `~/.qoder/skills` 与 `~/.codex/skills`。重复运行安全。
+
+仓库里附带一份 `config.example.json`，方便把这套 skill 迁移到新电脑或分享给别的 AI 环境时快速对照配置结构；实际运行仍以 `setup.sh` 生成的本地 `config.json` 为准。
 
 安装过程中系统会要求您做 4 件事（macOS 安全机制，无法再省）：
 
@@ -42,7 +44,8 @@ bash setup.sh
 
 ```
 SKILL.md                  # AI 工作流指令（任何支持 skill 的 AI 可执行）
-config.json               # 运行时配置（setup.sh 生成，勿手改录音目录外字段）
+config.example.json       # 配置模板（分享/迁移时参考）
+config.json               # 运行时配置（setup.sh 生成，本地使用，不入库）
 setup.sh / uninstall.sh   # 安装 / 卸载
 scripts/
   preclass_scan.py        # 课前：日历扫描 → 备课骨架
