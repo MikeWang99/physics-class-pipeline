@@ -288,7 +288,7 @@ transcribe_session() {
     archive_file="$(archive_transcript "$dir" "$sys" "$stu" "$matched")"
     log "archived transcript to $archive_file"
     delete_audio_after_transcript "$dir" || true
-    # 只有日历有对应日程时才准备反馈草稿素材；正式反馈/学生档案仍由 AI 完成
+    # 无论日历是否临时可用都创建待 AI 队列，避免一次匹配失败截断课后链路。
     if [ "$matched" = "yes" ]; then
       if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$sys" "$stu" >> "$LOG" 2>&1; then
         notify "done" "转写完成，文字稿已归档，反馈素材已准备好（正式反馈/档案更新待 AI 完成）✅"
@@ -301,7 +301,12 @@ transcribe_session() {
         fi
       fi
     else
-      notify "done" "转写完成，文字稿已归档（未匹配到课程，跳过反馈素材/档案更新）"
+      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" >> "$LOG" 2>&1; then
+        log "calendar match unavailable; queued transcript for AI reconciliation: $dir"
+        notify "done" "转写完成，文字稿已归档；课程待重新识别，反馈任务已保留"
+      else
+        notify "done" "转写完成 ✅（待处理任务创建失败，查看日志）"
+      fi
     fi
   else
     touch "$dir/.transcribe_failed"

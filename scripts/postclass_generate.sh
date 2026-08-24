@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # postclass_generate.sh - build a post-class feedback draft after transcription
 # Usage: postclass_generate.sh <session_dir> <vault_path>
-# Exit 0: success, 1: error, 2: no calendar match (skip feedback)
+# Exit 0: materials queued, 1: error
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -19,15 +19,22 @@ RESOLVER="$SCRIPT_DIR/resolve_student_name.py"
 
 # Match student from the watcher-provided calendar event when available. Falling
 # back keeps the script usable when run by hand.
+MATCH_STATUS="matched"
 if [ -n "${3:-}" ] && [ -n "${4:-}" ]; then
   SYSTEM="$3"
   STUDENT="$4"
 else
-  MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" "$SESSION_DIR" 2>/dev/null) || { echo "no calendar match, skipping feedback"; exit 2; }
-  SYSTEM="${MATCH%%|*}"
-  STUDENT="${MATCH##*|}"
+  MATCH=$("$SCRIPT_DIR/match_calendar_event.sh" "$SESSION_DIR" 2>/dev/null) || MATCH=""
+  if [ -n "$MATCH" ]; then
+    SYSTEM="${MATCH%%|*}"
+    STUDENT="${MATCH##*|}"
+  else
+    MATCH_STATUS="unmatched"
+    SYSTEM="未匹配"
+    STUDENT="Session-$(basename "$SESSION_DIR")"
+  fi
 fi
-[ -z "$STUDENT" ] && { echo "empty student name"; exit 2; }
+[ -z "$STUDENT" ] && { echo "empty student name"; exit 1; }
 
 # 日历标题可能被污染（含无关文字），只取第一段并去掉首尾空白
 STUDENT_CLEAN=$(printf '%s' "$STUDENT" | cut -d',' -f1 | xargs)
@@ -72,23 +79,30 @@ fi
 
 # 读取学生档案与最近一次反馈（保持问题跟踪连续性）
 PROFILE_TEXT=""
-[ -n "$PROFILE" ] && PROFILE_TEXT=$(head -c 4000 "$PROFILE")
+[ -n "$PROFILE" ] && PROFILE_TEXT=$(sed -n '1,120p' "$PROFILE")
 PREV_FEEDBACK=""
 PREV_FILE=$(ls -t "$VAULT_PATH/上课记录/课后反馈/"*-"$STUDENT"-feedback.md 2>/dev/null | head -1)
-[ -n "$PREV_FILE" ] && PREV_FEEDBACK=$(head -c 2500 "$PREV_FILE")
+[ -n "$PREV_FILE" ] && PREV_FEEDBACK=$(sed -n '1,100p' "$PREV_FILE")
 MATERIAL_DIR="$VAULT_PATH/上课记录/课后反馈草稿"
 mkdir -p "$MATERIAL_DIR"
 OUTFILE="$MATERIAL_DIR/${DATE}-${STUDENT}-feedback-materials.md"
 
-TRANSCRIPT_ARCHIVE="$VAULT_PATH/上课记录/课堂文字稿/${DATE} ${SYSTEM} Class-${STUDENT}.md"
-TRANSCRIPT_SNIPPET=$( { head -c 6000 "$TRANSCRIPT"; printf '\n…（中段省略）…\n'; tail -c 3000 "$TRANSCRIPT"; } )
+if [ "$MATCH_STATUS" = "matched" ]; then
+  TRANSCRIPT_ARCHIVE="$VAULT_PATH/上课记录/课堂文字稿/${DATE} ${SYSTEM} Class-${STUDENT}.md"
+  MATERIAL_STATUS="待AI生成"
+else
+  TRANSCRIPT_ARCHIVE="$VAULT_PATH/上课记录/课堂文字稿/${DATE} 未匹配 Class-Session-${session_base}.md"
+  MATERIAL_STATUS="待AI识别学生"
+fi
+TRANSCRIPT_SNIPPET=$( { sed -n '1,100p' "$TRANSCRIPT"; printf '\n…（中段省略）…\n'; tail -n 60 "$TRANSCRIPT"; } )
 
 cat > "$OUTFILE" <<EOF
 ---
 date: $DATE
 student: $STUDENT
 system: $SYSTEM
-status: 待AI生成
+status: $MATERIAL_STATUS
+calendar_match_status: $MATCH_STATUS
 source_transcript: $TRANSCRIPT_ARCHIVE
 source_profile: ${PROFILE:-（未匹配到学生档案）}
 source_previous_feedback: ${PREV_FILE:-（无）}
@@ -101,6 +115,7 @@ generated_by: material-pipeline-only
 - 由装了该 Skill 的 AI 基于课堂文字稿、学生档案和最近一次反馈生成正式客户反馈
 - Groq Whisper 仅负责转写，不参与备课或反馈正文写作
 - 正式反馈需遵循本 Skill 的固定格式与措辞要求，尤其要直接写学生名字，避免泛泛写“学生”
+- 如果 status 为“待AI识别学生”，先按 session 开始时间重新查询日历；日历暂时不可用时保留队列，不能跳过或猜学生
 
 ## 学生档案摘要
 ${PROFILE_TEXT:-（未匹配到学生档案）}

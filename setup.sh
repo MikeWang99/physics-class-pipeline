@@ -47,6 +47,9 @@ make_app() {
   <key>CFBundleName</key><string>$name</string>
   <key>CFBundleExecutable</key><string>$name</string>
   <key>CFBundleVersion</key><string>1.0</string>
+  <key>NSCalendarsUsageDescription</key><string>读取课程日历，用于生成备课记录并将课堂文字稿匹配到对应学生。</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>读取课程日历，用于生成备课记录并将课堂文字稿匹配到对应学生。</string>
+  <key>NSMicrophoneUsageDescription</key><string>录制在线课程音频，以便生成课堂文字稿。</string>
   <key>LSUIElement</key><true/>
 </dict></plist>
 EOF

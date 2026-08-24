@@ -11,9 +11,11 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KEYWORD="${CALENDAR_KEYWORD:-Class}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-QUERY_SCRIPT="$SCRIPT_DIR/query_calendar_events.sh"
+QUERY_SCRIPT="${CALENDAR_QUERY_SCRIPT:-$SCRIPT_DIR/query_calendar_events.sh}"
+SELECTOR="$SCRIPT_DIR/select_calendar_event.py"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG="$SKILL_DIR/config.json"
+MAX_DELTA_SECONDS="${CALENDAR_MATCH_MAX_SECONDS:-3600}"
 
 SESSION_ARG="${1:-}"
 REF_Y=""
@@ -52,49 +54,11 @@ VAULT_PATH="$(cfg vault_path "$HOME/Obsidian Vault")"
 RESOLVER="$SCRIPT_DIR/resolve_student_name.py"
 
 pick_best_event() {
-  python3 - "$KEYWORD" "$REF_ISO" <<'PY'
-import re
-import sys
-from datetime import datetime
-
-keyword = sys.argv[1]
-ref = datetime.fromisoformat(sys.argv[2]).replace(
-    tzinfo=datetime.now().astimezone().tzinfo
-)
-pattern = re.compile(rf"^(.*?)\s*{re.escape(keyword)}\s*[-－—]\s*(.+)$", re.IGNORECASE)
-best = None
-
-for raw in sys.stdin.read().splitlines():
-    if not raw.strip():
-        continue
-    parts = raw.split("\t")
-    if len(parts) < 2:
-        continue
-    summary, start_iso = parts[0].strip(), parts[1].strip()
-    match = pattern.search(summary)
-    if not match:
-        continue
-    try:
-        start = datetime.fromisoformat(start_iso)
-    except ValueError:
-        continue
-    delta = abs(int((start - ref).total_seconds()))
-    system = match.group(1).strip() or "未命名体系"
-    student = match.group(2).strip()
-    if not student:
-        continue
-    if best is None or delta < best[0]:
-        best = (delta, system, student)
-
-if best is None:
-    sys.exit(1)
-
-print(f"{best[1]}|{best[2]}")
-PY
+  python3 "$SELECTOR" "$KEYWORD" "$REF_ISO" "$MAX_DELTA_SECONDS"
 }
 
 pick_from_prep_notes() {
-  python3 - "$VAULT_PATH" "$REF_DATE" "$REF_ISO" <<'PY'
+  python3 - "$VAULT_PATH" "$REF_DATE" "$REF_ISO" "$MAX_DELTA_SECONDS" <<'PY'
 import re
 import sys
 from datetime import datetime
@@ -105,6 +69,7 @@ ref_date = sys.argv[2]
 ref = datetime.fromisoformat(sys.argv[3]).replace(
     tzinfo=datetime.now().astimezone().tzinfo
 )
+max_delta = int(sys.argv[4])
 prep_dir = vault / "上课记录" / "备课内容"
 best = None
 
@@ -135,6 +100,8 @@ for path in sorted(prep_dir.glob(f"{ref_date} *.md")):
     except ValueError:
         continue
     delta = abs(int((start - ref).total_seconds()))
+    if delta > max_delta:
+        continue
     system = system or "未命名体系"
     if best is None or delta < best[0]:
         best = (delta, system, student)
