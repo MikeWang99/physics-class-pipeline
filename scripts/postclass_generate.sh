@@ -56,7 +56,7 @@ if [ -d "$PROFILE_DIR" ]; then
       *"$base_lower"*|"$base_lower"*) STUDENT_CLEAN="$base"; PROFILE="$f"; break ;;
     esac
   done
-  # 前缀匹配兜底：Julien -> Julian
+  # 前缀匹配兜底：旧日历名 Julian -> 正式档案名 Julien
   if [ -z "$PROFILE" ]; then
     for f in "$PROFILE_DIR"/*.md; do
       [ -f "$f" ] || continue
