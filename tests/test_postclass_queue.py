@@ -44,6 +44,45 @@ class PostclassQueueTests(unittest.TestCase):
             self.assertIn("status: 待AI识别学生", text)
             self.assertIn("calendar_match_status: unmatched", text)
 
+    def test_previous_feedback_uses_latest_date_not_file_mtime(self):
+        with tempfile.TemporaryDirectory(prefix="physicsclass-test-") as tmp:
+            root = Path(tmp)
+            session = root / "2026-08-28_120000"
+            vault = root / "vault"
+            session.mkdir()
+            for name in ("学生档案", "课后反馈", "课堂文字稿"):
+                (vault / "上课记录" / name).mkdir(parents=True, exist_ok=True)
+            (session / "transcript.txt").write_text("完整文字稿", encoding="utf-8")
+            (vault / "上课记录" / "学生档案" / "Julien.md").write_text(
+                "# Julien", encoding="utf-8"
+            )
+            feedback_dir = vault / "上课记录" / "课后反馈"
+            old = feedback_dir / "2026-08-07-Julien-feedback.md"
+            recent = feedback_dir / "2026-08-24-Julien-feedback.md"
+            old.write_text("旧反馈", encoding="utf-8")
+            recent.write_text("最近反馈", encoding="utf-8")
+            os.utime(old, (recent.stat().st_mtime + 60, recent.stat().st_mtime + 60))
+
+            subprocess.run(
+                [
+                    "bash",
+                    str(SCRIPT),
+                    str(session),
+                    str(vault),
+                    "CIE",
+                    "Julien",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            materials = vault / "上课记录" / "课后反馈草稿" / "2026-08-28-Julien-feedback-materials.md"
+            text = materials.read_text(encoding="utf-8")
+            self.assertIn(f"source_previous_feedback: {recent}", text)
+            self.assertIn("最近反馈", text)
+            self.assertNotIn("\n旧反馈\n", text)
+
 
 if __name__ == "__main__":
     unittest.main()

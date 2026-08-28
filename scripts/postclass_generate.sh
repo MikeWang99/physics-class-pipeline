@@ -81,7 +81,9 @@ fi
 PROFILE_TEXT=""
 [ -n "$PROFILE" ] && PROFILE_TEXT=$(sed -n '1,120p' "$PROFILE")
 PREV_FEEDBACK=""
-PREV_FILE=$(ls -t "$VAULT_PATH/上课记录/课后反馈/"*-"$STUDENT"-feedback.md 2>/dev/null | head -1)
+PREV_FILE=$(find "$VAULT_PATH/上课记录/课后反馈" -maxdepth 1 -type f \
+  -name "*-${STUDENT}-feedback.md" ! -name "${DATE}-${STUDENT}-feedback.md" \
+  -print 2>/dev/null | LC_ALL=C sort -r | head -1)
 [ -n "$PREV_FILE" ] && PREV_FEEDBACK=$(sed -n '1,100p' "$PREV_FILE")
 MATERIAL_DIR="$VAULT_PATH/上课记录/课后反馈草稿"
 mkdir -p "$MATERIAL_DIR"

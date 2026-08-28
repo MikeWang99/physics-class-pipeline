@@ -127,6 +127,23 @@ SESSION=""
 FFPID=""
 NOTIFY_STAMP=""
 
+lock_course_match() {
+  local dir="$1"
+  local match=""
+  [ -d "$dir" ] || return 1
+  [ -s "$dir/calendar_match.txt" ] && return 0
+  match=$("$SCRIPT_DIR/match_calendar_event.sh" "$dir" 2>/dev/null) || match=""
+  case "$match" in
+    *'|'*)
+      printf '%s\n' "$match" > "$dir/calendar_match.txt"
+      log "course match locked at recording start (session=$dir, match=$match)"
+      return 0
+      ;;
+  esac
+  log "course match not available at recording start (session=$dir)"
+  return 1
+}
+
 # avoid notification spam: at most one no-input notification per 10 minutes
 notify_throttled() {
   local now=$(date +%s)
@@ -220,6 +237,7 @@ start_recording() {
     log "existing recording ffmpeg (pid $existing) found, adopting instead of duplicate start"
     FFPID="$existing"
     SESSION=$(ps -o command= -p "$existing" | grep -o "$RECORD_DIR/sessions/[^ ]*" | head -1 | xargs dirname)
+    lock_course_match "$SESSION" || true
     return 0
   fi
   mic_permission
@@ -246,6 +264,9 @@ start_recording() {
   FFPID=$!
   log "RECORDING started (pid $FFPID, platform=$platform, session=$SESSION, bh=$BH mic=$MIC)"
   notify "recording" "检测到开课（$platform），录音已开始"
+  # Lock the course while calendar/prep metadata is available. Transcription can
+  # take several minutes, so relying only on a post-class lookup is fragile.
+  lock_course_match "$SESSION" || true
   # route system output through the multi-output device if available
   bash "$SCRIPT_DIR/setup_audio.sh" activate >> "$LOG" 2>&1 || true
 }
@@ -276,7 +297,12 @@ transcribe_session() {
     export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
   fi
   if python3 "$SCRIPT_DIR/transcribe_audio.py" "$dir/audio.wav" "$dir" >> "$LOG" 2>&1; then
-    match=$("$SCRIPT_DIR/match_calendar_event.sh" "$dir" 2>/dev/null) || match=""
+    if [ -s "$dir/calendar_match.txt" ]; then
+      match=$(sed -n '1p' "$dir/calendar_match.txt")
+      log "using course match locked at recording start (session=$dir, match=$match)"
+    else
+      match=$("$SCRIPT_DIR/match_calendar_event.sh" "$dir" 2>/dev/null) || match=""
+    fi
     if [ -n "$match" ]; then
       matched="yes"
       sys="${match%%|*}"
