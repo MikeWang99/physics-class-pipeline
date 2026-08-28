@@ -68,6 +68,8 @@ scripts/
 
 开课和散会提醒同时使用通知横幅与 8 秒自动关闭的可见对话框，避免 macOS 静默抑制横幅时没有任何提示。可随时运行 `bash scripts/meeting_watcher.sh notify-test` 验证弹窗链路。
 
+课程匹配在开课时尝试锁定，临时读不到日历时会在录音期间每 60 秒重试，直到成功。转写与反馈素材准备完成后，`scripts/trigger_postclass_ai.sh` 会事件式启动一次本机 Codex，由安装了 Skill 的 Codex 读取完整文字稿、生成正式反馈并更新档案。这不是定时轮询；每天 10:00 的 Codex 自动任务仅作为失败重试与次日备课入口。
+
 ## 维护建议
 
 - 改工作流或提示词时，优先更新 `SKILL.md` 与 `docs/feedback-spec.md`

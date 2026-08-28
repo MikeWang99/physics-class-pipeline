@@ -149,6 +149,7 @@ meeting_running() {
 SESSION=""
 FFPID=""
 NOTIFY_STAMP=""
+MATCH_RETRY_STAMP=0
 
 lock_course_match() {
   local dir="$1"
@@ -159,12 +160,22 @@ lock_course_match() {
   case "$match" in
     *'|'*)
       printf '%s\n' "$match" > "$dir/calendar_match.txt"
-      log "course match locked at recording start (session=$dir, match=$match)"
+      log "course match locked (session=$dir, match=$match)"
       return 0
       ;;
   esac
-  log "course match not available at recording start (session=$dir)"
+  log "course match not available (session=$dir)"
   return 1
+}
+
+retry_course_match() {
+  local now
+  [ -n "$SESSION" ] || return 0
+  [ -s "$SESSION/calendar_match.txt" ] && return 0
+  now=$(date +%s)
+  [ $((now - MATCH_RETRY_STAMP)) -lt 60 ] && return 0
+  MATCH_RETRY_STAMP=$now
+  lock_course_match "$SESSION" || true
 }
 
 # avoid notification spam: at most one no-input notification per 10 minutes
@@ -260,6 +271,7 @@ start_recording() {
     log "existing recording ffmpeg (pid $existing) found, adopting instead of duplicate start"
     FFPID="$existing"
     SESSION=$(ps -o command= -p "$existing" | grep -o "$RECORD_DIR/sessions/[^ ]*" | head -1 | xargs dirname)
+    MATCH_RETRY_STAMP=0
     lock_course_match "$SESSION" || true
     return 0
   fi
@@ -276,6 +288,7 @@ start_recording() {
     return 1
   fi
   SESSION="$RECORD_DIR/sessions/$(date '+%Y-%m-%d_%H%M%S')"
+  MATCH_RETRY_STAMP=0
   mkdir -p "$SESSION"
   echo "$platform" > "$SESSION/platform.txt"
   local mix
@@ -290,6 +303,7 @@ start_recording() {
   # Lock the course while calendar/prep metadata is available. Transcription can
   # take several minutes, so relying only on a post-class lookup is fragile.
   lock_course_match "$SESSION" || true
+  MATCH_RETRY_STAMP=$(date +%s)
   # route system output through the multi-output device if available
   bash "$SCRIPT_DIR/setup_audio.sh" activate >> "$LOG" 2>&1 || true
 }
@@ -301,12 +315,12 @@ stop_recording() {
   log "RECORDING stopped (session=$SESSION)"
   bash "$SCRIPT_DIR/setup_audio.sh" restore >> "$LOG" 2>&1 || true
   transcribe_session "$SESSION"
-  FFPID=""; SESSION=""
+  FFPID=""; SESSION=""; MATCH_RETRY_STAMP=0
 }
 
 transcribe_session() {
   local dir="$1"
-  local match="" sys="" stu="" archive_file="" matched="no"
+  local match="" sys="" stu="" archive_file="" material_file="" matched="no"
   [ -f "$dir/audio.wav" ] || { log "no audio.wav in $dir"; return; }
   # skip if already transcribed or previously failed (prevent retry storm)
   [ -f "$dir/transcript.txt" ] && { log "already transcribed: $dir"; delete_audio_after_transcript "$dir" || true; return; }
@@ -339,8 +353,11 @@ transcribe_session() {
     delete_audio_after_transcript "$dir" || true
     # 无论日历是否临时可用都创建待 AI 队列，避免一次匹配失败截断课后链路。
     if [ "$matched" = "yes" ]; then
-      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$sys" "$stu" >> "$LOG" 2>&1; then
-        notify "done" "转写完成，文字稿已归档，反馈素材已准备好（正式反馈/档案更新待 AI 完成）✅"
+      if material_file=$(bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" "$sys" "$stu" 2>> "$LOG"); then
+        printf '%s\n' "$material_file" >> "$LOG"
+        bash "$SCRIPT_DIR/trigger_postclass_ai.sh" "$dir" "$material_file" >> "$LOG" 2>&1 || \
+          log "WARNING: failed to launch post-class AI trigger (session=$dir)"
+        notify "done" "转写完成，文字稿已归档，Codex 正在生成正式反馈并更新档案"
       else
         RC=$?
         if [ "$RC" -eq 2 ]; then
@@ -350,9 +367,12 @@ transcribe_session() {
         fi
       fi
     else
-      if bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" >> "$LOG" 2>&1; then
+      if material_file=$(bash "$SCRIPT_DIR/postclass_generate.sh" "$dir" "$VAULT_PATH" 2>> "$LOG"); then
+        printf '%s\n' "$material_file" >> "$LOG"
         log "calendar match unavailable; queued transcript for AI reconciliation: $dir"
-        notify "done" "转写完成，文字稿已归档；课程待重新识别，反馈任务已保留"
+        bash "$SCRIPT_DIR/trigger_postclass_ai.sh" "$dir" "$material_file" >> "$LOG" 2>&1 || \
+          log "WARNING: failed to launch post-class AI trigger (session=$dir)"
+        notify "done" "转写完成，文字稿已归档；Codex 正在重试识别课程并生成反馈"
       else
         notify "done" "转写完成 ✅（待处理任务创建失败，查看日志）"
       fi
@@ -394,6 +414,7 @@ while true; do
   if [ "$in_meeting" = 1 ]; then
     miss=0
     [ -z "$FFPID" ] && start_recording "$platform"
+    [ -n "$FFPID" ] && retry_course_match
   else
     if [ -n "$FFPID" ]; then
       miss=$((miss+1))

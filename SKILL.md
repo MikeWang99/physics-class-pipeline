@@ -55,6 +55,7 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 - **覆盖平台**：Zoom（zoom.us）、腾讯会议（wemeetapp/xmeet）、钉钉、飞书、Google Meet（Chrome/Safari 打开 meet.google.com 标签页）
 - **检测到开课**：自动用 ffmpeg 录制 BlackHole（会议双方声音）+ 麦克风（双保险），存入 `{recordings_dir}/sessions/{YYYY-MM-DD_HHMM}/audio.wav`
 - **检测到散会**（连续 45 秒无会议进程）：停止录音 → 自动调用 Groq Whisper 转写 → 文字稿存 `transcript.txt` → **无论是否匹配到日历，都会先把文字稿归档到 Vault 的 `课堂文字稿/`** → 转写成功后自动删除对应的 `audio.wav`（写入 `audio_deleted.txt` 删除记录）→ 无论是否匹配到课程，都创建课后反馈待处理素材；未匹配任务保留给 AI 后续重试，不再静默跳过
+- **课程身份锁定**：开课时立即按 session 时间匹配日历；若 EventKit 或 iCloud 当时短暂不可用，录音期间每 60 秒重试，直到将 `{SYSTEM}|{STUDENT}` 写入 `calendar_match.txt`
 
 用户无需任何手动操作。若用户说「开始上课/手动录音」，可直接运行 `bash {skill_dir}/scripts/meeting_watcher.sh once` 强制走一轮录音+转写。
 
@@ -64,6 +65,7 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 
 1. **归档文字稿与清理音频**：转写成功后，一律将 `transcript.txt` 加 front matter（日期/学生/体系/时长/是否匹配课程/文字稿来源/原始音频路径/音频保留策略）归档到 `{vault}/上课记录/课堂文字稿/`。若匹配到课程，则文件名为 `{YYYY-MM-DD} {体系} Class-{学生}.md`；若未匹配到课程，则文件名降级为 `{YYYY-MM-DD} 未匹配 Class-Session-{时戳}.md`，至少保证课堂文字稿不会丢。确认文字稿非空并完成必要元数据读取后，立即自动删除该 session 的 `audio.wav`，避免长期堆积 400MB 级录音文件
 2. **自动准备反馈草稿素材**（无论日历是否临时可用）：`postclass_generate.sh` 读取转写稿 + 学生档案 + 上次反馈，生成一个待 AI 填写的反馈素材文件。已匹配时写入 `{vault}/上课记录/课后反馈草稿/{YYYY-MM-DD}-{学生}-feedback-materials.md`；未匹配时以 session 标识进入同一目录并标记为“待AI识别学生”，不能跳过。该素材稿只负责把来源材料和固定结构铺好，不负责生成正式反馈正文，也不会由 watcher 直接改写学生档案。学生名会做清洗并与档案模糊匹配（防日历标题污染）
+3. **事件式触发当前 AI**：素材生成后立即运行 `trigger_postclass_ai.sh`，只启动一次本机 `codex exec`。该 Codex 必须读取完整文字稿、学生档案、最近反馈和 `docs/feedback-spec.md`，然后生成正式反馈、更新档案并写入 `ai_completed.txt`。它是课后事件触发，不是每 15 分钟轮询
 
 **通知逻辑**：
 - 有日历日程：「转写完成，文字稿已归档，反馈素材已准备好（正式反馈/档案更新待 AI 完成）✅」
@@ -71,7 +73,7 @@ launchd 常驻任务 `meeting_watcher.sh` 每 15 秒检测一次会议进程：
 
 **AI 生成部分**：用户说「生成反馈」「精修反馈」「更新档案」时，AI 读取 `课后反馈草稿/` 里的素材稿、课堂文字稿与学生档案，按本 skill 内置规范 `docs/feedback-spec.md` 生成正式反馈，并写入 `{vault}/上课记录/课后反馈/{YYYY-MM-DD}-{学生}-feedback.md`，同时按规范的台账更新规则同步 `{vault}/上课记录/学生档案/{学生}.md`。也就是说，学生档案更新发生在这一步，而不是 watcher 仅靠转写就能自动完成。
 
-在支持定时 AI 任务的宿主（如 Codex）中，应设置周期任务处理 `课后反馈草稿/` 中的“待AI生成 / 待AI识别学生”文件：先重试日历匹配，再由当前宿主 AI 读取完整文字稿生成正式反馈并更新档案。日历暂时不可用时保留任务等待下次重试，不得把它当作已完成。这个定时 AI 任务才是正式反馈自动生成的触发器；Groq Whisper 不参与正文生成。
+每天 10:00 的 Codex 定时任务保留为失败补偿与次日备课入口：扫描 `课后反馈草稿/` 中仍处于“待AI生成 / 待AI识别学生”的文件，先重试日历匹配，再由当前宿主 AI 读取完整文字稿生成正式反馈并更新档案。日历暂时不可用时保留任务，不得猜学生或标记完成。Groq Whisper 始终只负责转写，不参与正文生成。
 
 ## 4.1 课后反馈写作规范（内置）
 

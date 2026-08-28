@@ -169,9 +169,7 @@ cat > "$PLIST_WATCH" <<EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.physicsclass.meeting-watcher</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/open</string>
-    <string>-gj</string>
-    <string>$APP_WATCH</string>
+    <string>$APP_WATCH/Contents/MacOS/PhysicsClassWatcher</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
