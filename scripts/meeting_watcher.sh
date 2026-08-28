@@ -9,6 +9,7 @@
 # Usage:
 #   bash meeting_watcher.sh          # daemon loop (used by launchd)
 #   bash meeting_watcher.sh once     # record one session manually (Ctrl-C to stop)
+#   bash meeting_watcher.sh notify-test  # show the lifecycle notification test
 set -u
 
 # launchd / .app contexts have a minimal PATH; add common Homebrew locations
@@ -36,8 +37,30 @@ LOG="$LOG_DIR/watcher.log"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 notify() {
-  osascript -e "display notification \"$2\" with title \"Physics Class Pipeline\"" 2>/dev/null || true
-  log "NOTIFY: $1"
+  local key="$1" body="$2"
+  local title="Physics Class Pipeline"
+  log "NOTIFY requested: $key"
+  (
+    # AppleScript notifications can be silently suppressed without returning
+    # an error. Keep the banner, and always show a short dialog for the two
+    # lifecycle events the teacher must see.
+    osascript \
+      -e 'on run argv' \
+      -e 'display notification (item 2 of argv) with title (item 1 of argv) sound name "Glass"' \
+      -e 'end run' "$title" "$body" >/dev/null 2>&1 || true
+    if [ "$key" = "recording" ] || [ "$key" = "transcribing" ]; then
+      if osascript \
+        -e 'on run argv' \
+        -e 'display dialog (item 2 of argv) with title (item 1 of argv) buttons {"知道了"} default button 1 giving up after 8' \
+        -e 'end run' "$title" "$body" >/dev/null 2>&1; then
+        log "NOTIFY dialog displayed: $key"
+      else
+        log "NOTIFY dialog failed: $key"
+      fi
+    else
+      log "NOTIFY banner requested: $key"
+    fi
+  ) &
 }
 
 # ---------- audio device lookup ----------
@@ -263,7 +286,7 @@ start_recording() {
     "$SESSION/audio.wav" >> "$LOG" 2>&1 &
   FFPID=$!
   log "RECORDING started (pid $FFPID, platform=$platform, session=$SESSION, bh=$BH mic=$MIC)"
-  notify "recording" "检测到开课（$platform），录音已开始"
+  notify "recording" "检测到开课，录音已开始"
   # Lock the course while calendar/prep metadata is available. Transcription can
   # take several minutes, so relying only on a post-class lookup is fragile.
   lock_course_match "$SESSION" || true
@@ -291,7 +314,7 @@ transcribe_session() {
   local size
   size=$(stat -f%z "$dir/audio.wav" 2>/dev/null || echo 0)
   if [ "$size" -lt 100000 ]; then log "audio too small ($size bytes), skipping transcription"; notify "skip" "录音文件过小，跳过转写"; return; fi
-  notify "transcribing" "会议结束，正在转写文字稿…"
+  notify "transcribing" "会议结束，录音已停止，正在转写文字稿…"
   # pick up GROQ_API_KEY from user shell config if not in env
   if [ -z "${GROQ_API_KEY:-}" ] && [ -f "$HOME/.zshrc" ]; then
     export GROQ_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY=' "$HOME/.zshrc" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'\'']+//; s/["'\'']+$//')"
@@ -341,6 +364,12 @@ transcribe_session() {
 }
 
 # ---------- modes ----------
+if [ "${1:-}" = "notify-test" ]; then
+  notify "recording" "通知测试：开课和散会弹窗链路正常"
+  wait
+  exit 0
+fi
+
 if [ "${1:-}" = "once" ]; then
   echo "Manual recording — press Ctrl-C when class ends."
   start_recording "manual" || exit 1
